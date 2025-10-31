@@ -102,12 +102,56 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) return false;
+        // senderがPlayer型であればplayer変数に代入し、そうでなければnull
+        Player player = (sender instanceof Player) ? (Player) sender : null;
 
-        // リロード処理
+        // リロード処理 (コンソール/プレイヤー両方から許可)
         if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
             loadAllItems();
-            player.sendMessage("§aアイテム設定をリロードしました。");
+            sender.sendMessage("§aアイテム設定をリロードしました。");
+            return true;
+        }
+
+        // ★ プレイヤー専用の処理はここでチェックし、コンソールからは実行できないようにする
+        if (player == null) {
+            // コンソールからの実行の場合、アイテム付与とポイント付与・リセットのみを許可する
+            // ただし、これらの処理は必ずターゲットプレイヤーを必要とするように修正が必要
+
+            // アイテム付与（コンソール用）
+            if (args.length == 2) {
+                String id = args[0];
+                String targetName = args[1];
+
+                Player targetPlayer = Bukkit.getPlayer(targetName);
+                if (targetPlayer == null) {
+                    sender.sendMessage("§cプレイヤー §e" + targetName + " §cは見つかりませんでした。");
+                    return true;
+                }
+
+                // ItemLoader.loadSingleItem(id, this, itemFolder); の部分は適切に修正してください
+                // File itemFolder = new File(Deepwither.getInstance().getDataFolder(), "items"); // Deepwither.getInstance()を適切なプラグインインスタンスに
+                // ItemStack item = ItemLoader.loadSingleItem(id, /* PluginInstance */, itemFolder);
+
+                // 例として仮のロード処理
+                File itemFolder = new File(Deepwither.getInstance().getDataFolder(), "items"); // 適切なプラグインインスタンスを使用
+                ItemStack item = ItemLoader.loadSingleItem(id, this, itemFolder); // Deepwither.getInstance()を適切なプラグインインスタンスに
+
+                if (item == null) {
+                    sender.sendMessage("§cそのIDのアイテムは存在しません。");
+                    return true;
+                }
+
+                targetPlayer.getInventory().addItem(item);
+                sender.sendMessage("§aアイテム §e" + id + " §aをプレイヤー §e" + targetPlayer.getName() + " §aに付与しました。");
+                targetPlayer.sendMessage("§aアイテム §e" + id + " §aを付与されました。");
+                return true;
+            }
+
+            // addpoints / addskillpoints / resetpoints (コンソールからは未実装のまま、または別途実装が必要)
+            // プレイヤーデータ操作は、引数で対象プレイヤーを指定するロジックが必要だが、
+            // プレイヤー名を引数として受け取るロジックがまだ不完全なため、ここでは一旦プレイヤー専用とする。
+
+            sender.sendMessage("§c使い方: <id> <プレイヤー名> | reload");
             return true;
         }
 
@@ -168,13 +212,22 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // アイテム付与処理
-        if (args.length != 1) {
-            player.sendMessage("§c使い方: /giveitem <id> | reload | resetpoints | addpoints <数>");
-            return true;
+        String id = args[0];
+        Player targetPlayer = player; // デフォルトはコマンド実行者
+
+        // プレイヤー名が指定されているかチェック (args[1]が存在するか)
+        if (args.length >= 2) {
+            String targetName = args[1];
+            // サーバーに接続しているプレイヤーから名前で検索
+            Player found = Bukkit.getPlayer(targetName);
+
+            if (found == null) {
+                player.sendMessage("§cプレイヤー §e" + targetName + " §cは見つかりませんでした。");
+                return true;
+            }
+            targetPlayer = found;
         }
 
-        String id = args[0];
         File itemFolder = new File(plugin.getDataFolder(), "items");
         ItemStack item = ItemLoader.loadSingleItem(id, this, itemFolder);
 
@@ -183,8 +236,8 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        player.getInventory().addItem(item);
-        player.sendMessage("§aアイテム §e" + id + " §aを生成して付与しました。");
+        targetPlayer.getInventory().addItem(item);
+        targetPlayer.sendMessage("§aアイテム §e" + id + " §aを生成して付与しました。");
         return true;
     }
 
