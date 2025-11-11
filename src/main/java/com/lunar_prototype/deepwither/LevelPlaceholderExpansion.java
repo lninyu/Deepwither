@@ -49,13 +49,13 @@ public class LevelPlaceholderExpansion extends PlaceholderExpansion {
         if (params.equalsIgnoreCase("mana")) {
             ManaData data = manaManager.get(player.getUniqueId());
             if (data != null) {
-                return String.valueOf(data.getCurrentMana());
+                return String.valueOf((int)Math.round(data.getCurrentMana()));
             }
         }
         if (params.equalsIgnoreCase("mana_max")) {
             ManaData data = manaManager.get(player.getUniqueId());
             if (data != null) {
-                return String.valueOf(data.getMaxMana());
+                return String.valueOf((int)Math.round(data.getMaxMana()));
             }
         }
         if (params.equalsIgnoreCase("hp")) {

@@ -99,7 +99,7 @@ public class AttributeGui implements Listener {
             return;
         }
 
-        if (data.getAllocated(type) <= Deepwither.getInstance().getAttributeManager().getMaxAllocatable(player.getUniqueId(),type)){
+        if (data.getAllocated(type) >= Deepwither.getInstance().getAttributeManager().getMaxAllocatable(player.getUniqueId(),type)){
             player.sendMessage("§c上限に達しています！");
             return;
         }

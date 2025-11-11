@@ -119,16 +119,20 @@ public class AttributeManager {
 
         switch (target) {
             case AGI -> {
-                int str = data.getAllocated(StatType.STR);
-                penalty = (int) Math.floor(str * 0.5);
+                int vit = data.getAllocated(StatType.VIT);
+                penalty = (int) Math.floor(vit * 0.5);
             }
-            case MND -> {
-                int intelligence = data.getAllocated(StatType.INT);
-                penalty = (int) Math.floor(intelligence * 0.5);
+            case VIT -> {
+                int agi = data.getAllocated(StatType.AGI);
+                penalty = (int) Math.floor(agi * 0.5);
             }
             case STR -> {
                 int agi = data.getAllocated(StatType.AGI);
                 penalty = (int) Math.floor(agi * 0.5);
+            }
+            case MND -> {
+                int intelligence = data.getAllocated(StatType.INT);
+                penalty = (int) Math.floor(intelligence * 0.5);
             }
             case INT -> {
                 int mnd = data.getAllocated(StatType.MND);
