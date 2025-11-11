@@ -27,7 +27,7 @@ public class AttributeGui implements Listener {
         };
 
         for (StatType type : guiStats) {
-            ItemStack icon = getStatIcon(type, data);
+            ItemStack icon = getStatIcon(type,data,player);
             int slot = switch (type) {
                 case STR -> 9;
                 case VIT -> 11;
@@ -42,7 +42,7 @@ public class AttributeGui implements Listener {
         player.openInventory(gui);
     }
 
-    private static ItemStack getStatIcon(StatType type, PlayerAttributeData data) {
+    private static ItemStack getStatIcon(StatType type, PlayerAttributeData data,Player player) {
         Material mat = switch (type) {
             case STR -> Material.IRON_SWORD;
             case VIT -> Material.GOLDEN_APPLE;
@@ -58,7 +58,7 @@ public class AttributeGui implements Listener {
 
         List<String> lore = new ArrayList<>();
         lore.add("");
-        lore.add("§7ポイント: §6" + data.getAllocated(type) + " §7/ §650");
+        lore.add("§7ポイント: §6" + data.getAllocated(type) + " §7/ §6" + Deepwither.getInstance().getAttributeManager().getMaxAllocatable(player.getUniqueId(),type));
         lore.add("§7現在の" + type.getDisplayName() + "レベル: §6§l" + data.getAllocated(type));
         lore.add("");
         lore.add("§8効果:");
@@ -96,6 +96,11 @@ public class AttributeGui implements Listener {
         PlayerAttributeData data = Deepwither.getInstance().getAttributeManager().get(player.getUniqueId());
         if (data == null || data.getRemainingPoints() <= 0) {
             player.sendMessage("§cポイントが足りません！");
+            return;
+        }
+
+        if (data.getAllocated(type) <= Deepwither.getInstance().getAttributeManager().getMaxAllocatable(player.getUniqueId(),type)){
+            player.sendMessage("§c上限に達しています！");
             return;
         }
 

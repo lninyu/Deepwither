@@ -18,7 +18,7 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.util.logging.Logger;
 
-public final class Deepwither extends JavaPlugin {
+public final class  Deepwither extends JavaPlugin {
 
     private Logger log;
 
