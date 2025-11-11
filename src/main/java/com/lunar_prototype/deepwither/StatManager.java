@@ -8,14 +8,15 @@ import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.NamespacedKey;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 public class StatManager {
+
+    private final Map<UUID, Double> actualCurrentHealth = new HashMap<>();
 
     private static final UUID ATTACK_DAMAGE_MODIFIER_ID = UUID.fromString("a3bb7af7-3c5b-4df1-a17e-cdeae1db1d32");
     private static final UUID DEFENSE_MODIFIER_ID = UUID.fromString("3811b7a8-4756-415d-be35-5ed4ba14228b");
@@ -23,15 +24,145 @@ public class StatManager {
     private static final UUID MOVE_SPEED_MODIFIER_ID = UUID.fromString("6692942f-af28-454e-b945-474de887286d");
     private static final UUID ATTACK_SPEED_MODIFIER_ID = UUID.fromString("06b4e42e-9c53-4b72-80d1-4d59fb7dc1ef");
 
-    public static void updatePlayerStats(Player player) {
+    public void updatePlayerStats(Player player) {
         StatMap total = getTotalStatsFromEquipment(player);
         syncAttackDamage(player, total);
         syncAttributes(player,total);
+        syncBukkitHealth(player);
         // 必要に応じて今後他ステータスも同期
+    }
+
+    /**
+     * プレイヤーの実際の最大HPを計算する。（StatMapのMAX_HEALTHのFlat値を使用）
+     */
+    public double getActualMaxHealth(Player player) {
+        // getTotalStatsFromEquipment内の計算結果を使用する
+        StatMap total = getTotalStatsFromEquipment(player);
+        // getTotalStatsFromEquipment内で既に baseHp (20.0) が加算されているので、その値をそのまま使用
+        return total.getFlat(StatType.MAX_HEALTH);
+    }
+
+
+    /**
+     * ログイン時やリスポーン時に呼ばれ、HPをリセットする。
+     * ログイン時は最大値に設定。リスポーン時は0.0からスタートさせ、リスポーン保護中に自然回復させるのが一般的。
+     */
+    public void resetHealthOnEvent(Player player, boolean isLogin) {
+        double maxHp = getActualMaxHealth(player);
+
+        if (isLogin) {
+            // ログイン時: 最大HPで初期化
+            actualCurrentHealth.put(player.getUniqueId(), maxHp);
+        } else {
+            // 死亡/リスポーン時: 最小HP (0.0) で初期化
+            actualCurrentHealth.put(player.getUniqueId(), 0.0);
+        }
+
+        // BukkitのHPバーも同期
+        syncBukkitHealth(player);
+    }
+
+    /**
+     * プレイヤーのHPを自然回復させる。
+     * @param player 回復対象
+     * @param seconds 経過秒数 (タスク間隔)
+     */
+    public void naturalRegeneration(Player player, double seconds) {
+        double currentHp = getActualCurrentHealth(player);
+        double maxHp = getActualMaxHealth(player);
+
+        if (currentHp >= maxHp) return;
+
+        // 実際の回復量を計算 (例: 毎秒最大HPの0.5%を回復)
+        StatMap stats = getTotalStatsFromEquipment(player);
+        double regenPercent = stats.getFinal(StatType.HP_REGEN) / 100.0; // HP_REGENステータスを想定
+
+        // 毎秒の基本回復量 (MAX HP * 0.5% + StatのRegen量)
+        double baseRegenPerSecond = maxHp * 0.01 + regenPercent;
+
+        double actualRegenAmount = baseRegenPerSecond * seconds;
+
+        // HPを更新
+        setActualCurrentHealth(player, currentHp + actualRegenAmount);
+
+        // 回復エフェクト（任意）
+        player.getWorld().spawnParticle(org.bukkit.Particle.HEART, player.getLocation().add(0, 2, 0), 1, 0.5, 0.5, 0.5, 0);
+    }
+
+    /**
+     * プレイヤーの現在の実際のHPを取得する。存在しない場合は最大HPで初期化。
+     */
+    public double getActualCurrentHealth(Player player) {
+        // 最初のロード時（マップに存在しない時）は最大HPで初期化する
+        return actualCurrentHealth.getOrDefault(player.getUniqueId(), getActualMaxHealth(player));
+    }
+
+    /**
+     * プレイヤーの実際のHPを更新し、BukkitのHPバーと同期する。（ダメージ/回復処理のコア）
+     */
+    public void setActualCurrentHealth(Player player, double newHealth) {
+        double max = getActualMaxHealth(player);
+
+        // HPを最大値と0の間に制限
+        newHealth = Math.min(newHealth, max);
+        newHealth = Math.max(newHealth, 0.0);
+
+        // 内部マップを更新
+        actualCurrentHealth.put(player.getUniqueId(), newHealth);
+
+        // BukkitのHPバーを同期する
+        syncBukkitHealth(player);
+    }
+
+    /**
+     * 実際のHP割合に基づいて、BukkitのHPバー表示を更新する。
+     * このメソッドは、最大HPが更新された場合（装備変更など）の現行値の維持も兼ねる。
+     */
+    public void syncBukkitHealth(Player player) {
+        double actualMax = getActualMaxHealth(player);
+        double actualCurrent = getActualCurrentHealth(player);
+
+        // ------------------------------------------------------------------
+        // ★ 追加ロジック: 装備変更などで最大HPが減少した場合の現行HP調整
+        // (maintainHealthOnStatUpdate の役割を統合)
+        if (actualCurrent > actualMax) {
+            // 現在のHPが新しい最大HPを超えていたら、上限に合わせる
+            actualCurrent = actualMax;
+            // 内部マップも更新
+            actualCurrentHealth.put(player.getUniqueId(), actualCurrent);
+        }
+        // ------------------------------------------------------------------
+
+        // Bukkitの最大HPを20.0に固定
+        AttributeInstance maxHealthAttr = player.getAttribute(Attribute.MAX_HEALTH);
+        if (maxHealthAttr != null && maxHealthAttr.getValue() != 20.0) {
+            // 既存のMAX_HEALTH Modifierを削除
+            AttributeModifier existing = maxHealthAttr.getModifier(MAX_HEALTH_MODIFIER_ID);
+            if (existing != null) {
+                maxHealthAttr.removeModifier(existing);
+            }
+            // ベース値も20.0に設定することで、クライアントに20.0を強制させる
+            maxHealthAttr.setBaseValue(20.0);
+        }
+
+        // 実際のHP割合を計算
+        double ratio = (actualMax > 0) ? actualCurrent / actualMax : 0.0;
+
+        // Bukkitの最大HP (20.0) に割合を適用し、表示用のHP値を決定
+        double bukkitHealth = ratio * 20.0;
+
+        // プレイヤーのBukkit HPを更新 (死亡アニメーションのために0.1を最低値とする)
+        player.setHealth(Math.max(0.1, bukkitHealth));
+
+        // 死亡時のHP=0.0の確実な同期（念のため）
+        if (actualCurrent <= 0.0 && player.getHealth() > 0.1) {
+            player.setHealth(0.0);
+        }
     }
 
     public static StatMap getTotalStatsFromEquipment(Player player) {
         StatMap total = new StatMap();
+        PlayerLevelData data = Deepwither.getInstance().getLevelManager().get(player);
 
         // 装備ステータス読み込み
         ItemStack mainHand = player.getInventory().getItemInMainHand();
@@ -47,16 +178,9 @@ public class StatManager {
         }
 
         ItemStack offHand = player.getInventory().getItemInOffHand();
-        total.add(readStatsFromItem(offHand));
-
-        // 体力の基礎値を追加（例えば20）
-        double baseHp = 20.0;
-        double currentHp = total.getFlat(StatType.MAX_HEALTH);
-        total.setFlat(StatType.MAX_HEALTH, currentHp + baseHp);
-        // マナの基礎地を追加
-        double baseMana = 100.0;
-        double currentMana = total.getFlat(StatType.MAX_MANA);
-        total.setFlat(StatType.MAX_MANA, currentMana + baseMana);
+        if (isOffHandEquipment(offHand)) {
+            total.add(readStatsFromItem(offHand));
+        }
 
         // ステ振りバフ（AttributeManagerと連携）
         PlayerAttributeData attr = Deepwither.getInstance().getAttributeManager().get(player.getUniqueId());
@@ -71,6 +195,7 @@ public class StatManager {
                     case VIT -> {
                         double val = total.getFlat(StatType.MAX_HEALTH);
                         total.setFlat(StatType.MAX_HEALTH, val + points * 2.0);
+                        total.setFlat(StatType.DEFENSE, val + points * 1.0);
                     }
                     case MND -> {
                         double val = total.getFlat(StatType.CRIT_DAMAGE);
@@ -99,6 +224,16 @@ public class StatManager {
         if (skillData != null) {
             total.add(skillData.getPassiveStats());
         }
+
+        // 体力の基礎値を追加（例えば20）
+        double baseHp = 20.0;
+        double currentHp = total.getFinal(StatType.MAX_HEALTH);
+        double levelhp = 2 * data.getLevel();
+        total.setFlat(StatType.MAX_HEALTH, currentHp + baseHp + levelhp);
+        // マナの基礎地を追加
+        double baseMana = 100.0;
+        double currentMana = total.getFinal(StatType.MAX_MANA);
+        total.setFlat(StatType.MAX_MANA, currentMana + baseMana);
 
         return total;
     }
@@ -163,10 +298,6 @@ public class StatManager {
             double modifierValue = stats.getFinal(StatType.ATTACK_SPEED) - 4.0;
             syncAttribute(player, Attribute.ATTACK_SPEED,ATTACK_SPEED_MODIFIER_ID,modifierValue);
         }
-        // 最大HP
-        double hp = stats.getFinal(StatType.MAX_HEALTH);
-        syncAttribute(player, Attribute.MAX_HEALTH, MAX_HEALTH_MODIFIER_ID, hp);
-        player.setHealth(Math.min(player.getHealth(), player.getAttribute(Attribute.MAX_HEALTH).getValue())); // オーバーフロー防止
 
         // 移動速度（注意：初期値が0.1くらいなので +0.01でも体感変わる）
         syncAttribute(player, Attribute.MOVEMENT_SPEED, MOVE_SPEED_MODIFIER_ID, stats.getFinal(StatType.MOVE_SPEED));
@@ -195,5 +326,24 @@ public class StatManager {
 
         AttributeModifier modifier = new AttributeModifier(uuid, "custom_" + attrType.name(), value, AttributeModifier.Operation.ADD_NUMBER);
         attr.addModifier(modifier);
+    }
+
+    private static boolean isOffHandEquipment(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) {
+            return false;
+        }
+
+        ItemMeta meta = item.getItemMeta();
+        if (meta.hasLore()) {
+            for (String line : meta.getLore()) {
+                // 「カテゴリ:オフハンド装備」という文字列が完全に含まれているかをチェック
+                // 色コードがついていても機能するように、ChatColor.stripColor() を使用することを推奨します。
+                String strippedLine = org.bukkit.ChatColor.stripColor(line);
+                if (strippedLine.contains("カテゴリ:オフハンド装備")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

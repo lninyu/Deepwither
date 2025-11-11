@@ -8,10 +8,12 @@ public class LevelPlaceholderExpansion extends PlaceholderExpansion {
 
     private final LevelManager levelManager;
     private final ManaManager manaManager;
+    private final StatManager statManager;
 
-    public LevelPlaceholderExpansion(LevelManager levelManager,ManaManager manaManager) {
+    public LevelPlaceholderExpansion(LevelManager levelManager,ManaManager manaManager, StatManager statManager) {
         this.levelManager = levelManager;
         this.manaManager = manaManager;
+        this.statManager = statManager;
     }
 
     @Override
@@ -55,6 +57,15 @@ public class LevelPlaceholderExpansion extends PlaceholderExpansion {
             if (data != null) {
                 return String.valueOf(data.getMaxMana());
             }
+        }
+        if (params.equalsIgnoreCase("hp")) {
+            // 現在HPを取得
+            // 小数点以下を切り捨てて整数で表示することが多い
+            return String.valueOf((int)Math.round(statManager.getActualCurrentHealth(player)));
+        }
+        if (params.equalsIgnoreCase("hp_max")) {
+            // 最大HPを取得
+            return String.valueOf((int)Math.round(statManager.getActualMaxHealth(player)));
         }
         return null;
     }

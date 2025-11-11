@@ -1,12 +1,15 @@
 package com.lunar_prototype.deepwither;
 
 import io.lumine.mythic.bukkit.events.MythicDropLoadEvent;
+import io.lumine.mythic.bukkit.events.MythicMechanicLoadEvent;
+import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 import com.lunar_prototype.deepwither.LevelManager;
 
@@ -32,12 +35,22 @@ public final class Deepwither extends JavaPlugin {
     private CooldownManager cooldownManager;
     private ArtifactManager artifactManager;
     public ArtifactGUIListener artifactGUIListener;
+    private TraderManager traderManager;
+    private CreditManager creditManager;
     public ArtifactGUI artifactGUI;
+    public ItemFactory itemFactory;
+    public StatManager statManager;
+    private DailyTaskManager dailyTaskManager;
+    private static Economy econ = null;
+    private final java.util.Random random = new java.util.Random();
 
     public AttributeManager getAttributeManager() {
         return attributeManager;
     }
 
+    public LevelManager getLevelManager() {
+        return levelManager;
+    }
     public SkilltreeManager getSkilltreeManager() {
         return skilltreeManager;
     }
@@ -68,14 +81,35 @@ public final class Deepwither extends JavaPlugin {
     public  ArtifactGUI getArtifactGUI(){
         return artifactGUI;
     }
+    public ItemFactory getItemFactory() {return itemFactory;}
+    public void setStatManager(StatManager statManager) {this.statManager = statManager;}
+
+    public TraderManager getTraderManager() {
+        return traderManager;
+    }
+
+    public CreditManager getCreditManager() {
+        return creditManager;
+    }
+    public DailyTaskManager getDailyTaskManager() { // ★ 新規追加
+        return dailyTaskManager;
+    }
 
     @Override
     public void onEnable() {
         // Plugin startup logic
         instance = this;
-        new ItemFactory(this);
-        getServer().getPluginManager().registerEvents(new PlayerStatListener(), this);
-        Bukkit.getPluginManager().registerEvents(new DamageManager(), this);
+
+        if (!setupEconomy()) {
+            getLogger().severe(String.format("[%s] - Disabled due to no Vault dependency found!", getDescription().getName()));
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
+        statManager = new StatManager();
+        itemFactory = new ItemFactory(this);
+        getServer().getPluginManager().registerEvents(new PlayerStatListener(statManager), this);
+        Bukkit.getPluginManager().registerEvents(new DamageManager(statManager), this);
         Bukkit.getPluginManager().registerEvents(new SkillCastSessionManager(),this);
         Bukkit.getPluginManager().registerEvents(new SkillAssignmentGUI(),this);
         manaManager = new ManaManager();
@@ -85,16 +119,26 @@ public final class Deepwither extends JavaPlugin {
         skillSlotManager = new SkillSlotManager(getDataFolder());
         skillCastManager = new SkillCastManager();
         cooldownManager = new CooldownManager();
+        this.creditManager = new CreditManager(this);
+        this.traderManager = new TraderManager(this, itemFactory);
+        this.dailyTaskManager = new DailyTaskManager(this);
         artifactManager = new ArtifactManager(this);
         artifactGUI = new ArtifactGUI();
-        artifactGUIListener = new ArtifactGUIListener(artifactGUI);
+        artifactGUIListener = new ArtifactGUIListener(artifactGUI,statManager);
         this.skillAssignmentGUI = new SkillAssignmentGUI(); // 必ず enable 時に初期化
         getServer().getPluginManager().registerEvents(skillAssignmentGUI, this);
         getServer().getPluginManager().registerEvents(artifactGUIListener, this);
         getServer().getPluginManager().registerEvents(artifactGUI, this);
         getServer().getPluginManager().registerEvents(new CustomDropListener(this),this);
+        getServer().getPluginManager().registerEvents(new TaskListener(dailyTaskManager), this);
 
         this.getCommand("artifact").setExecutor(new ArtifactGUICommand(artifactGUI));
+        getCommand("trader").setExecutor(new TraderCommand(traderManager));
+        getCommand("credit").setExecutor(new CreditCommand(creditManager));
+        getServer().getPluginManager().registerEvents(new TraderGUI(), this);
+        getServer().getPluginManager().registerEvents(new SellGUI(), this);
+
+        new RegenTask(statManager).start(this);
 
         saveDefaultConfig(); // MobExpConfig.yml
         try {
@@ -117,6 +161,21 @@ public final class Deepwither extends JavaPlugin {
         }
 
         Bukkit.getPluginManager().registerEvents(new MobKillListener(levelManager, getConfig()), this);
+        getServer().getPluginManager().registerEvents(new SafeZoneListener(),this);
+        getServer().getPluginManager().registerEvents(new PlayerAnimationListener(),this);
+        this.getCommand("status").setExecutor(new StatusCommand(levelManager, statManager));
+
+        Bukkit.getPluginManager().registerEvents(new Listener() {
+            @EventHandler
+            public void onMythicMechanicLoad(MythicMechanicLoadEvent event){
+                getLogger().info("MythicMechanicLoadEvent called for mechanic " + event.getMechanicName());
+
+                if(event.getMechanicName().equalsIgnoreCase("CustomDamage"))	{
+                    event.register(new CustomDamageMechanics(event.getConfig()));
+                    getLogger().info("-- Registered CustomDamage mechanic!");
+                }
+            }
+        },this);
 
         // ログイン・ログアウト同期
         Bukkit.getPluginManager().registerEvents(new Listener() {
@@ -142,7 +201,7 @@ public final class Deepwither extends JavaPlugin {
         }, 20L, 20L); // 毎秒実行
 
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
-            new LevelPlaceholderExpansion(levelManager,manaManager).register();
+            new LevelPlaceholderExpansion(levelManager,manaManager,statManager).register();
             getLogger().info("PlaceholderAPI拡張を登録しました。");
         }
         // コマンド登録
@@ -167,5 +226,22 @@ public final class Deepwither extends JavaPlugin {
         }
         skillSlotManager.saveAll();
         artifactManager.saveData();
+    }
+
+    private boolean setupEconomy() {
+        RegisteredServiceProvider<Economy> rsp = getServer().getServicesManager().getRegistration(Economy.class);
+        if (rsp == null) {
+            return false;
+        }
+        econ = rsp.getProvider();
+        return econ != null;
+    }
+
+    public static Economy getEconomy() {
+        return econ;
+    }
+
+    public java.util.Random getRandom() {
+        return random;
     }
 }

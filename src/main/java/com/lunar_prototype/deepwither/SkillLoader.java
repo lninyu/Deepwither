@@ -25,6 +25,7 @@ public class SkillLoader {
 
             double mana = config.getDouble("mana.base", 0);
             int cooldown = config.getInt("cooldown.base", 0);
+            int cooldown_min = config.getInt("cooldown.min", 0);
             String mythicSkill = config.getString("mythic_skill");
 
             SkillDefinition def = new SkillDefinition();
@@ -34,6 +35,7 @@ public class SkillLoader {
             def.material = material != null ? material : Material.STONE;
             def.manaCost = mana;
             def.cooldown = cooldown;
+            def.cooldown_min = cooldown_min;
             def.mythicSkillId = mythicSkill;
 
             skills.put(id, def);

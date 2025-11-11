@@ -113,6 +113,7 @@ class StatEffectText {
             case STR -> list.add("+ " + (level * 2) + " 攻撃力");
             case VIT -> {
                 list.add("+ " + (level * 2) + " 最大HP");
+                list.add("+ " + (level * 1) + " 防御力");
             }
             case MND -> list.add("+ " + (level * 1.5) + "% クリティカルダメージ");
             case INT -> {

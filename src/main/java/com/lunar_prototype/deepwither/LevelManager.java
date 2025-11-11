@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 
 public class LevelManager {
-    private static final int MAX_LEVEL = 100;
+    private static final int MAX_LEVEL = 50;
 
     private final Map<UUID, PlayerLevelData> dataMap = new HashMap<>();
     private final Connection connection;
@@ -75,11 +75,35 @@ public class LevelManager {
 
         if (after > before) {
             player.sendMessage("§6Level Up! §e" + before + " → " + after);
+            Deepwither.getInstance().getAttributeManager().givePoints(player.getUniqueId(),2);
+            UUID uuid = player.getUniqueId();
+            SkilltreeManager.SkillData skilldata = Deepwither.getInstance().getSkilltreeManager().load(uuid);
+            if (skilldata != null) {
+                skilldata.setSkillPoint(skilldata.getSkillPoint() + 2);
+                Deepwither.getInstance().getSkilltreeManager().save(uuid, skilldata);
+            }
         }
 
         if (after >= MAX_LEVEL) {
             player.sendMessage("§b最大レベルに到達しました！");
         }
+    }
+
+    public void updatePlayerDisplay(Player player) {
+        PlayerLevelData data = dataMap.get(player.getUniqueId());
+
+        // 例: 現在のカスタムレベルと進捗データを取得 (あなたの実装に依存)
+        int currentLevel = data.getLevel();
+        double currentExp = data.getExp();
+        double expToNextLevel = data.getRequiredExp();
+
+        // ★ 経験値レベル表示を「現在レベル」に設定
+        player.setLevel(currentLevel);
+
+        // ★ 経験値バーを「レベルの進捗」に設定
+        // 0.0 (空) から 1.0 (満タン) の間で計算
+        float progress = (float) (currentExp / expToNextLevel);
+        player.setExp(progress);
     }
 
     public PlayerLevelData get(Player player) {

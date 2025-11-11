@@ -11,6 +11,7 @@ public class SkillDefinition {
     public Material material;
     public double manaCost;
     public int cooldown;
+    public int cooldown_min;
     public String mythicSkillId;
 }
 

@@ -64,12 +64,12 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
         }
     }
 
-    public ItemStack applyStatsToItem(ItemStack item, StatMap stats, @Nullable String itemType, @Nullable List<String> flavorText, ItemLoader.RandomStatTracker tracker,@Nullable String rarity) {
+    public ItemStack applyStatsToItem(ItemStack item, StatMap stats, @Nullable String itemType, @Nullable List<String> flavorText, ItemLoader.RandomStatTracker tracker,@Nullable String rarity,Map<StatType, Double> appliedModifiers) {
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return item;
 
         // Lore 更新（タイプとフレーバーテキスト付き）
-        meta.setLore(LoreBuilder.build(stats, false, itemType, flavorText,tracker,rarity));
+        meta.setLore(LoreBuilder.build(stats, false, itemType, flavorText,tracker,rarity,appliedModifiers));
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
         meta.addItemFlags(ItemFlag.HIDE_ADDITIONAL_TOOLTIP);
@@ -81,6 +81,7 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
             container.set(new NamespacedKey("rpgstats", type.name().toLowerCase() + "_percent"), PersistentDataType.DOUBLE, stats.getPercent(type));
         }
         item.setItemMeta(meta);
+
         item.setData(DataComponentTypes.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.itemAttributes().build().showInTooltip(false));
 
         return item;
@@ -269,6 +270,7 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
 
 class ItemLoader {
     private static final Random random = new Random();
+    private static final String CUSTOM_ID_KEY = "custom_id";
 
     // 品質判定用Enum
     enum QualityRank {
@@ -312,6 +314,43 @@ class ItemLoader {
         public double getRatio() {
             if (maxTotal == 0) return 0;
             return actualTotal / maxTotal;
+        }
+    }
+
+    // --- 新規追加: モディファイアー関連 ---
+
+    // レアリティごとのモディファイアー最大個数
+    private static final Map<String, Integer> MAX_MODIFIERS_BY_RARITY = Map.of(
+            "&f&lコモン", 1,
+            "&a&lアンコモン", 2,
+            "&b&lレア", 3,
+            "&d&lエピック", 4,
+            "&6&lレジェンダリー", 6
+    );
+
+    // 付与可能なモディファイアーとその重み（StatTypeと値の範囲）
+    private static final List<ModifierDefinition> MODIFIER_DEFINITIONS = List.of(
+            new ModifierDefinition(StatType.ATTACK_DAMAGE, 1.0, 3.0, 5.0),
+            new ModifierDefinition(StatType.DEFENSE, 1.0, 2.0, 5.0),
+            new ModifierDefinition(StatType.CRIT_CHANCE, 0.5, 1.0, 3.0),
+            new ModifierDefinition(StatType.CRIT_DAMAGE, 0.3, 5.0, 10.0),
+            new ModifierDefinition(StatType.MAX_HEALTH, 1.0, 10.0, 20.0),
+            new ModifierDefinition(StatType.MAGIC_DAMAGE, 1.0, 3.0, 5.0),
+            new ModifierDefinition(StatType.MAGIC_RESIST, 1.0, 2.0, 5.0)
+    );
+
+    // モディファイアー定義用ヘルパークラス
+    static class ModifierDefinition {
+        final StatType type;
+        final double weight;
+        final double minFlat;
+        final double maxFlat;
+
+        ModifierDefinition(StatType type, double weight, double minFlat, double maxFlat) {
+            this.type = type;
+            this.weight = weight;
+            this.minFlat = minFlat;
+            this.maxFlat = maxFlat;
         }
     }
 
@@ -406,6 +445,60 @@ class ItemLoader {
                     }
                 }
 
+                // ----------------------------------------------------
+                // --- 新規追加: レアリティに基づくモディファイアー処理 ---
+                // ----------------------------------------------------
+                boolean disableModifiers = config.getBoolean(key + ".disable_modifiers", false);
+
+                Map<StatType, Double> appliedModifiers = new HashMap<>();
+                String rarity = config.getString(key + ".rarity", "コモン"); // レアリティ取得 (大文字化)
+
+                if (!disableModifiers) {
+                    int maxModifiers = MAX_MODIFIERS_BY_RARITY.getOrDefault(rarity, 1);
+                    int modifiersToApply = random.nextInt(maxModifiers) + 1; // 1個から最大個数までランダムに付与
+
+                    // モディファイアーを抽選・付与
+                    Set<StatType> appliedTypes = new HashSet<>();
+
+                    // 重み付き抽選のためのリストを作成
+                    List<ModifierDefinition> weightedModifiers = new ArrayList<>();
+                    for (ModifierDefinition def : MODIFIER_DEFINITIONS) {
+                        for (int j = 0; j < (int) (def.weight * 10); j++) { // 重みを整数に変換してリストに追加
+                            weightedModifiers.add(def);
+                        }
+                    }
+
+                    for (int m = 0; m < modifiersToApply; m++) {
+                        if (weightedModifiers.isEmpty()) break;
+
+                        // 重み付きリストからランダムに選択
+                        ModifierDefinition selectedDef = weightedModifiers.get(random.nextInt(weightedModifiers.size()));
+
+                        // すでに付与されたStatTypeの場合はスキップ (重複防止)
+                        if (appliedTypes.contains(selectedDef.type)) {
+                            // 同じタイプのモディファイアーが選ばれた場合は、抽選リストから削除し、mをデクリメントして再試行
+                            weightedModifiers.removeIf(def -> def.type == selectedDef.type);
+                            m--;
+                            continue;
+                        }
+
+                        // ランダムな値を生成し、StatMapに追加
+                        double modifierValue = selectedDef.minFlat + random.nextDouble() * (selectedDef.maxFlat - selectedDef.minFlat);
+
+                        // 既存のflat値に加算 (モディファイアーは基本的にflat値を想定)
+                        stats.setFlat(selectedDef.type, stats.getFlat(selectedDef.type) + modifierValue);
+                        appliedModifiers.put(selectedDef.type, modifierValue);
+
+                        // 品質トラッカーには追加しない (モディファイアーは品質判定の対象外とするため)
+
+                        appliedTypes.add(selectedDef.type);
+                        // System.out.println(key + "にモディファイアー: " + selectedDef.type + " +" + modifierValue + "を付与"); // デバッグ用
+
+                        // 抽選リストからそのStatTypeをすべて削除し、次に選ばれないようにする
+                        weightedModifiers.removeIf(def -> def.type == selectedDef.type);
+                    }
+                }
+
                 // 品質ランク判定
                 QualityRank rank = QualityRank.fromRatio(tracker.getRatio());
 
@@ -413,13 +506,19 @@ class ItemLoader {
                 String originalName = config.getString(key + ".name", key);
                 String newName = originalName;
                 meta.setDisplayName(newName);
+                NamespacedKey pdc_key = new NamespacedKey(Deepwither.getInstance(), CUSTOM_ID_KEY);
+                meta.getPersistentDataContainer().set(pdc_key,PersistentDataType.STRING,key);
                 item.setItemMeta(meta);
 
                 String itemType = config.getString(key + ".type", null);
-                String rarity = config.getString(key + ".rarity", null);
                 List<String> flavorText = config.getStringList(key + ".flavor");
                 // Lore + PDC 書き込みをItemFactory側で処理
-                item = factory.applyStatsToItem(item, stats,itemType,flavorText,tracker,rarity);
+                item = factory.applyStatsToItem(item, stats,itemType,flavorText,tracker,rarity,appliedModifiers);
+
+                int durability = config.getInt(key + ".durability",0);
+                if (durability > 0){
+                    item.setData(DataComponentTypes.MAX_DAMAGE,durability);
+                }
 
                 String armortrim = config.getString(key + ".armortrim");
                 String armortrimmaterial = config.getString(key + ".armortrimmaterial");

@@ -54,12 +54,12 @@ public class SkillCastSessionManager implements Listener {
                             continue;
                         }
 
-                        boolean onCooldown = cooldownManager.isOnCooldown(uuid, skillId, def.cooldown);
+                        boolean onCooldown = cooldownManager.isOnCooldown(uuid, skillId, def.cooldown,def.cooldown_min);
                         boolean notEnoughMana = manaManager.get(uuid).getCurrentMana() < def.manaCost;
 
                         String display;
                         if (onCooldown) {
-                            double remaining = cooldownManager.getRemaining(uuid, skillId, def.cooldown);
+                            double remaining = cooldownManager.getRemaining(uuid, skillId, def.cooldown,def.cooldown_min);
                             display = "§c" + def.name + String.format("(%.1f)", remaining);
                         } else if (notEnoughMana) {
                             display = "§9" + def.name;

@@ -25,8 +25,8 @@ public class SkillCastManager {
             return false;
         }
 
-        if (cd.isOnCooldown(player.getUniqueId(), def.id, def.cooldown)) {
-            double rem = cd.getRemaining(player.getUniqueId(), def.id, def.cooldown);
+        if (cd.isOnCooldown(player.getUniqueId(), def.id, def.cooldown,def.cooldown_min)) {
+            double rem = cd.getRemaining(player.getUniqueId(), def.id, def.cooldown,def.cooldown_min);
             player.sendMessage(ChatColor.YELLOW + String.format("スキルはクールダウン中です！（残り %.1f 秒）", rem));
             return false;
         }

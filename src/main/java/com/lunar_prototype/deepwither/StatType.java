@@ -10,6 +10,7 @@ import org.bukkit.inventory.ItemStack;
 public enum StatType {
     ATTACK_DAMAGE("攻撃力", "§c","➸"),
     ATTACK_SPEED("攻撃速度","&f","■"),
+    PROJECTILE_DAMAGE("発射体ダメージ","&f","➸"),
     MAGIC_DAMAGE("魔法攻撃力", "§b","■"),
     DEFENSE("防御力", "§a","■"),
     MAGIC_RESIST("魔法耐性", "§9","■"),
@@ -17,6 +18,7 @@ public enum StatType {
     CRIT_CHANCE("クリティカル率", "§e","■"),
     CRIT_DAMAGE("クリティカルダメージ", "§e","■"),
     MAX_HEALTH("最大HP", "§4","■"),
+    HP_REGEN("HP回復","§4","■"),
     MOVE_SPEED("移動速度", "§d","■"),
     SKILL_POWER("スキル威力", "§b","■"),
     MAX_MANA("最大マナ", "§b","■"),
@@ -105,7 +107,7 @@ class StatMap {
  */
 class LoreBuilder {
 
-    public static List<String> build(StatMap stats, boolean compact, String itemType, List<String> flavorText, ItemLoader.RandomStatTracker tracker,String rarity) {
+    public static List<String> build(StatMap stats, boolean compact, String itemType, List<String> flavorText, ItemLoader.RandomStatTracker tracker,String rarity,Map<StatType, Double> appliedModifiers) {
         List<String> lore = new ArrayList<>();
 
         // 上部: タイプ表示
@@ -129,10 +131,9 @@ class LoreBuilder {
                 String formattedLine = line.replace("&", "§");
                 lore.add("§8" + formattedLine); // フレーバーは薄い灰色で表示
             }
+            lore.add("");
         }
 
-        // 空行 + ステータスヘッダー
-        lore.add("");
         lore.add("§7§m----------------------------");
 
         // 達成率（RandomStatTrackerがある場合のみ）
@@ -144,6 +145,23 @@ class LoreBuilder {
             else if (ratio >= 50) color = "§a";
             else color = "§7";
             lore.add(" §f• 品質: " + color + Math.round(ratio) + "%");
+        }
+
+        if (appliedModifiers != null && !appliedModifiers.isEmpty()) {
+            lore.add(" §5§l- モディファイアー -"); // モディファイアー専用ヘッダー
+
+            for (Map.Entry<StatType, Double> entry : appliedModifiers.entrySet()) {
+                StatType type = entry.getKey();
+                double value = entry.getValue();
+
+                // モディファイアー専用のフォーマット
+                String label = type.getIcon() + " " + type.getDisplayName();
+
+                // モディファイアーは flat 値として扱われるため、formatStatを流用するか、専用フォーマットを使う
+                String line = formatModifierStat(type, value);
+                lore.add(line);
+            }
+            lore.add("§7§m----------------------------"); // モディファイアーセクションの区切り
         }
 
         for (StatType type : stats.getAllTypes()) {
@@ -158,6 +176,12 @@ class LoreBuilder {
 
         lore.add("§7§m----------------------------");
         return lore;
+    }
+
+    private static String formatModifierStat(StatType type, double value) {
+        String label = type.getIcon() + " " + type.getDisplayName();
+        // モディファイアーは§d（マゼンタ）で表示し、ボーナスであることを強調
+        return " §d» " + label + ": §d+" + String.format("%.1f", value);
     }
 
     private static String formatStat(StatType type, double flat, double percent, boolean compact) {
