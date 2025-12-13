@@ -7,7 +7,6 @@ import com.lunar_prototype.deepwither.quest.QuestLocation;
 import com.lunar_prototype.deepwither.quest.RewardDetails;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.entity.EntityType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.File;
@@ -16,13 +15,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 /**
  * プラグインのデータフォルダ内にあるYAMLファイルを使用してクエストデータの永続化と読み込みを管理するクラス。
- * (試作版のため、Firestoreからローカルファイル保存に変更)
  */
 public class QuestDataStore {
 
@@ -30,7 +27,6 @@ public class QuestDataStore {
     private final File dataFile;
     private final YamlConfiguration dataConfig;
 
-    // Firestoreの代わりにJavaPluginを受け取るように変更
     public QuestDataStore(JavaPlugin plugin) {
         this.plugin = plugin;
         this.dataFile = new File(plugin.getDataFolder(), "quests.yml");
@@ -39,16 +35,10 @@ public class QuestDataStore {
 
     /**
      * 全てのギルドロケーションのクエストをYAMLファイルに保存します。
-     * Bukkit Schedulerではなく、専用の非同期ExecutorServiceを使用するように変更します。
-     * @param questLocations 保存するQuestLocationのリスト
-     * @return 完了Future
      */
     public CompletableFuture<Void> saveAllQuests(List<QuestLocation> questLocations) {
-
-        // ExecutorServiceの取得（Deepwitherにキャストしてアクセス）
         ExecutorService executor = ((Deepwither) plugin).getAsyncExecutor();
 
-        // CompletableFuture.runAsync() で専用のExecutor上で非同期に実行
         return CompletableFuture.runAsync(() -> {
             try {
                 // YamlConfigurationをクリア
@@ -57,44 +47,35 @@ public class QuestDataStore {
                 // すべてのロケーションをシリアライズして保存
                 for (QuestLocation location : questLocations) {
                     Map<String, Object> locationData = serializeLocation(location);
-                    // locationIdをトップレベルのキーとして設定
                     dataConfig.createSection(location.getLocationId(), locationData);
                 }
 
-                // ファイルI/Oを実行 (非同期スレッドで実行される)
                 dataConfig.save(dataFile);
 
             } catch (IOException e) {
                 System.err.println("Error saving quests to quests.yml: " + e.getMessage());
                 e.printStackTrace();
-                // 例外をCompletableFutureに伝播させる
                 throw new RuntimeException("Failed to save guild quest data.", e);
             }
         }, executor);
-        // CompletableFutureが成功または失敗すると、対応する状態になります。
     }
 
     /**
      * YAMLファイルから全てのクエストを読み込みます。
-     * @param initialLocations 初期化に使用するLocationデータ（ギルドID情報など）
-     * @return ロードされたQuestLocationのリストを含むCompletableFuture
      */
     public CompletableFuture<List<QuestLocation>> loadAllQuests(List<QuestLocation> initialLocations) {
         CompletableFuture<List<QuestLocation>> future = new CompletableFuture<>();
 
-        // 非同期タスクでファイルI/Oを実行
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             List<QuestLocation> loadedLocations = new ArrayList<>();
-            YamlConfiguration loadedConfig = YamlConfiguration.loadConfiguration(dataFile); // 最新のデータをロード
+            YamlConfiguration loadedConfig = YamlConfiguration.loadConfiguration(dataFile);
 
             for (QuestLocation initialLocation : initialLocations) {
                 String locationId = initialLocation.getLocationId();
 
                 if (loadedConfig.contains(locationId)) {
-                    // データが存在する場合
                     Map<String, Object> data = loadedConfig.getConfigurationSection(locationId).getValues(false);
 
-                    // currentQuestsリストを取得
                     List<Map<String, Object>> questMaps = (List<Map<String, Object>>) data.get("currentQuests");
                     List<GeneratedQuest> quests = deserializeQuests(questMaps);
 
@@ -104,7 +85,6 @@ public class QuestDataStore {
                             quests
                     ));
                 } else {
-                    // データがない場合は初期ロケーションをそのまま使用
                     loadedLocations.add(initialLocation);
                 }
             }
@@ -116,7 +96,6 @@ public class QuestDataStore {
 
     // --- シリアライズ/デシリアライズ ヘルパー ---
 
-    // Map<String, Object>への変換（YamlConfigurationで保存可能な形式）
     private Map<String, Object> serializeLocation(QuestLocation location) {
         Map<String, Object> data = new HashMap<>();
         data.put("locationId", location.getLocationId());
@@ -136,18 +115,19 @@ public class QuestDataStore {
         data.put("questId", quest.getQuestId().toString());
         data.put("title", quest.getTitle());
         data.put("questText", quest.getQuestText());
-        data.put("targetEntityType", quest.getTargetMobId());
+        data.put("targetEntityType", quest.getTargetMobId()); // targetMobId
         data.put("requiredQuantity", quest.getRequiredQuantity());
-        data.put("locationName", quest.getLocationDetails());
+        data.put("locationName", quest.getLocationDetails()); // locationDetails
         data.put("rewardDetails", quest.getRewardDetails());
+
+        // ★追加: 有効期限(絶対時刻ミリ秒)を保存
+        data.put("expirationTime", quest.getExpirationTime());
 
         return data;
     }
 
     /**
      * MapのリストからGeneratedQuestのリストに変換します。
-     * @param questMapsRaw YamlConfigurationから取得したリスト（要素はMap<String, Object>と想定）
-     * @return デシリアライズされたGeneratedQuestのリスト
      */
     private List<GeneratedQuest> deserializeQuests(List<?> questMapsRaw) {
         List<GeneratedQuest> quests = new ArrayList<>();
@@ -156,32 +136,46 @@ public class QuestDataStore {
         for (Object obj : questMapsRaw) {
             if (!(obj instanceof Map)) continue;
 
-            // 安全にキャスト (YAMLのMapキーがObjectになっている可能性を考慮)
             Map<?, ?> mapRaw = (Map<?, ?>) obj;
             Map<String, Object> map = new HashMap<>();
             mapRaw.forEach((k, v) -> map.put(String.valueOf(k), v));
 
             try {
-                // requiredQuantityはYAMLからIntegerまたはLongとして読み込まれるため、Numberとして取得しintに変換
                 Object quantityObj = map.get("requiredQuantity");
-                int quantity = 0; // デフォルト値
+                int quantity = 0;
                 if (quantityObj instanceof Number) {
                     quantity = ((Number) quantityObj).intValue();
                 } else {
-                    System.err.println("Required Quantity is not a number: " + quantityObj);
-                    continue; // 処理をスキップ
+                    continue;
                 }
 
-                // GeneratedQuestのコンストラクタは現在の定義 (title, text, entityType, quantity, locationName) に合わせます。
+                // ★追加: 有効期限の読み込み処理
+                Object expirationObj = map.get("expirationTime");
+                long expirationTime;
+
+                if (expirationObj instanceof Number) {
+                    expirationTime = ((Number) expirationObj).longValue();
+                } else {
+                    // 古いデータなどで存在しない場合は、仮に現在から24時間後とする
+                    expirationTime = System.currentTimeMillis() + 86400000L;
+                }
+
+                // ★重要: GeneratedQuestのコンストラクタは「有効期間(duration)」を受け取って「現在時刻+期間」で期限を設定する仕様に変更されたため、
+                // ここでは「保存された期限 - 現在時刻」を計算して渡すことで、元の期限時刻を復元する。
+                // (値がマイナスになれば、生成直後に期限切れとして扱われるので整合性は保たれる)
+                long durationToRestore = expirationTime - System.currentTimeMillis();
+
                 GeneratedQuest quest = new GeneratedQuest(
                         (String) map.get("title"),
                         (String) map.get("questText"),
                         (String) map.get("targetEntityType"),
                         quantity,
                         (LocationDetails) map.get("locationName"),
-                        (RewardDetails) map.get("rewardDetails")
+                        (RewardDetails) map.get("rewardDetails"),
+                        durationToRestore // ★追加: 復元された期間
                 );
                 quests.add(quest);
+
             } catch (Exception e) {
                 System.err.println("Failed to deserialize quest data: " + e.getMessage());
                 e.printStackTrace();

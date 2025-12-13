@@ -189,12 +189,7 @@ public class StatManager {
         double bukkitHealth = ratio * 20.0;
 
         // プレイヤーのBukkit HPを更新 (死亡アニメーションのために0.1を最低値とする)
-        player.setHealth(Math.max(0.1, bukkitHealth));
-
-        // 死亡時のHP=0.0の確実な同期（念のため）
-        if (actualCurrent <= 0.0 && player.getHealth() > 0.1) {
-            player.setHealth(0.0);
-        }
+        player.setHealth(Math.max(0.0, bukkitHealth));
     }
 
     public static StatMap getTotalStatsFromEquipment(Player player) {

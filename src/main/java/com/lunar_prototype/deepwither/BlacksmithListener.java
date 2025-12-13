@@ -46,8 +46,12 @@ public class BlacksmithListener implements Listener {
 
         }
         // --- 未実装ボタンのフィードバック ---
-        else if (displayName.equals(ChatColor.AQUA + "装備強化") || displayName.equals(ChatColor.AQUA + "アイテムクラフト")) {
+        else if (displayName.equals(ChatColor.AQUA + "装備強化")) {
             player.sendMessage(ChatColor.YELLOW + "この機能はまだ実装されていません。");
+        }
+        else if (displayName.equals(ChatColor.AQUA + "アイテムクラフト")) {
+            // ★変更: クラフトGUIを開く
+            Deepwither.getInstance().getCraftingGUI().openRecipeList(player);
         }
     }
 }

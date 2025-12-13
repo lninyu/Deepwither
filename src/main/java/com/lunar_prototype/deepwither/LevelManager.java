@@ -139,6 +139,45 @@ public class LevelManager {
         player.setExp(progress);
     }
 
+    /**
+     * プレイヤーのレベルと経験値をリセットします。（レベル1、経験値0）
+     * @param player リセット対象のプレイヤー
+     */
+    public void resetLevel(Player player) {
+        UUID uuid = player.getUniqueId();
+
+        // 1. データマップ上のデータをリセット
+        PlayerLevelData initialData = new PlayerLevelData(1, 0);
+        dataMap.put(uuid, initialData);
+
+        // 2. データベース上のデータを更新 (saveメソッドを流用)
+        // 注意: saveメソッド内でもMAX_LEVELチェックが入るが、レベル1なので問題なし
+        save(uuid);
+
+        // 3. レベルリセットの通知
+        player.sendMessage("§c§l§m--------------------------------------");
+        player.sendMessage("§f§l    »» §c§lレベルリセット完了 §f§l««");
+        player.sendMessage("§7   あなたのレベルと経験値が初期状態に戻りました。");
+        player.sendMessage(String.format("§e   レベル: §a§l%d", initialData.getLevel()));
+        player.sendMessage("§c§l§m--------------------------------------");
+        player.playSound(player.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 0.5f); // リセット完了音
+
+        // 4. プレイヤーの表示を更新
+        updatePlayerDisplay(player);
+
+        // 5. 属性ポイントとスキルポイントのリセット処理 (!!! 要実装 !!!)
+        // 属性ポイントのリセット
+        Deepwither.getInstance().getSkilltreeManager().resetSkillTree(player.getUniqueId());
+        PlayerAttributeData data = Deepwither.getInstance().getAttributeManager().get(uuid);
+        if (data != null) {
+            for (StatType type : StatType.values()) {
+                data.setAllocated(type, 0);
+            }
+            data.addPoints(0);
+        }
+        player.sendMessage("§c警告: 属性ポイントとスキルポイントのリセット処理は別途実装が必要です。");
+    }
+
     public PlayerLevelData get(Player player) {
         return dataMap.get(player.getUniqueId());
     }

@@ -69,32 +69,45 @@ public class QuestGUI implements InventoryHolder {
      * GeneratedQuestの詳細に基づいてItemStackを作成します。
      */
     private ItemStack createQuestItem(GeneratedQuest quest) {
-        ItemStack item = new ItemStack(Material.PAPER); // クエストを表すアイテム
+        ItemStack item = new ItemStack(Material.PAPER);
         ItemMeta meta = item.getItemMeta();
 
-        // 1. 表示名を設定
         meta.setDisplayName(ChatColor.YELLOW.toString() + ChatColor.BOLD + quest.getTitle());
 
-        // 2. Lore (説明文) を設定
         List<String> lore = new ArrayList<>();
         lore.add(ChatColor.GRAY + "--- 依頼概要 ---");
-        // ★ 依頼文の全文表示ロジック
-        final int MAX_LINE_WIDTH = 35; // 1行の最大文字数 (日本語も考慮して調整)
 
-        // 依頼文を改行してロアに追加 (ChatColor.WHITEを適用)
+        final int MAX_LINE_WIDTH = 35;
         for (String line : wrapText(quest.getQuestText(), MAX_LINE_WIDTH)) {
             lore.add(ChatColor.WHITE + line);
         }
         lore.add("");
         lore.add(ChatColor.AQUA + "目標: " + ChatColor.DARK_AQUA + quest.getTargetMobId() + " 討伐 x" + quest.getRequiredQuantity());
-        lore.add(ChatColor.AQUA + "場所: " + ChatColor.DARK_AQUA + quest.getLocationDetails().getLlmLocationText() + "[" + "X:" + quest.getLocationDetails().getX() + "Y:" + quest.getLocationDetails().getY() + "Z:" + quest.getLocationDetails().getZ() + "]");
+
+        // 場所などの表示... (省略)
+
+        lore.add("");
+
+        // ★追加: 残り時間の表示
+        long remainingMillis = quest.getRemainingTime();
+        String timeString;
+        if (remainingMillis <= 0) {
+            timeString = ChatColor.RED + "期限切れ";
+        } else {
+            long hours = remainingMillis / (1000 * 60 * 60);
+            long minutes = (remainingMillis % (1000 * 60 * 60)) / (1000 * 60);
+
+            // 残り時間が少ない場合は赤く表示、十分なら緑
+            ChatColor timeColor = (hours == 0 && minutes < 30) ? ChatColor.RED : ChatColor.GREEN;
+            timeString = timeColor + String.format("%d時間 %d分", hours, minutes);
+        }
+        lore.add(ChatColor.GRAY + "残り受付時間: " + timeString);
+
         lore.add("");
         lore.add(ChatColor.GOLD + "報酬: " + ChatColor.YELLOW + quest.getRewardDetails().getLlmRewardText());
         lore.add("");
         lore.add(ChatColor.GREEN.toString() + ChatColor.BOLD + ">> クリックして受注 <<");
 
-        // 3. 識別子の埋め込み (重要!)
-        // クエストIDをLoreの末尾など、プレイヤーに見えない場所に埋め込みます。
         lore.add(ChatColor.BLACK + "QUEST_ID:" + quest.getQuestId().toString());
 
         meta.setLore(lore);

@@ -1,14 +1,16 @@
 package com.lunar_prototype.deepwither;
 
-import com.lunar_prototype.deepwither.StatType;
+import com.lunar_prototype.deepwither.profession.PlayerProfessionData;
+import com.lunar_prototype.deepwither.profession.ProfessionManager;
+import com.lunar_prototype.deepwither.profession.ProfessionType;
 import net.milkbowl.vault.economy.Economy;
+import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Map;
 import java.util.Set;
 
 public class StatusCommand implements CommandExecutor {
@@ -16,11 +18,13 @@ public class StatusCommand implements CommandExecutor {
     private final LevelManager levelManager;
     private final StatManager statManager;
     private final CreditManager creditManager;
+    private final ProfessionManager professionManager; // ★追加
 
-    public StatusCommand(LevelManager levelManager, StatManager statManager,CreditManager creditManager) {
+    public StatusCommand(LevelManager levelManager, StatManager statManager, CreditManager creditManager, ProfessionManager professionManager) {
         this.levelManager = levelManager;
         this.statManager = statManager;
         this.creditManager = creditManager;
+        this.professionManager = professionManager; // ★初期化
     }
 
     @Override
@@ -30,134 +34,127 @@ public class StatusCommand implements CommandExecutor {
             return true;
         }
 
-        // ----------------------------------------------------
-        // --- A. レベルと経験値の表示 ---
-        // ----------------------------------------------------
+        // データの取得
         PlayerLevelData levelData = levelManager.get(player);
         if (levelData == null) {
-            player.sendMessage("§cレベルデータが見つかりませんでした。");
+            player.sendMessage("§cデータロード中です。しばらくお待ちください。");
             return true;
         }
 
+        Economy econ = Deepwither.getEconomy();
+        StatMap finalStats = statManager.getTotalStatsFromEquipment(player);
+
+        // --- レイアウト開始 ---
+        player.sendMessage("§8§m---------------------------------------");
+        player.sendMessage("       §e§l【 プレイヤー ステータス 】");
+        player.sendMessage("");
+
+        // ----------------------------------------------------
+        // [1] 基本情報 (レベル・所持金)
+        // ----------------------------------------------------
         int currentLevel = levelData.getLevel();
         double currentExp = levelData.getExp();
         double expToNextLevel = levelData.getRequiredExp();
-        double expPercent = (double) currentExp / expToNextLevel;
-        Economy econ = Deepwither.getEconomy();
+        double expPercent = (currentExp / expToNextLevel) * 100;
 
-        player.sendMessage("§8§m----------------------------------");
-        player.sendMessage("§e§l【 プレイヤー ステータス 】");
-        player.sendMessage(" ");
-
-        // 所持金情報
-        player.sendMessage("§b§l> 所持金");
-        player.sendMessage(" §e所持金: §a" + econ.getBalance(player));
-        player.sendMessage(" ");
-
-        // レベル情報
-        player.sendMessage("§b§l> レベル情報");
-        player.sendMessage(" §7レベル: §a" + currentLevel);
-        player.sendMessage(" §7経験値: §f" + currentExp + " §7/ §f" + expToNextLevel + " §7(§e" + String.format("%.2f", expPercent * 100) + "%§7)");
-
-        // 経験値バーの表示（任意）
-        player.sendMessage(" " + createProgressBar(expPercent, 20, '§', 'a', '7'));
-        player.sendMessage(" ");
-
+        player.sendMessage(" §b§l[ 基本情報 ]");
+        player.sendMessage(String.format("  §7Lv: §a%d §7(§e%.1f%%§7)", currentLevel, expPercent));
+        player.sendMessage("  §7所持金  : §6" + econ.format(econ.getBalance(player)));
+        player.sendMessage("");
 
         // ----------------------------------------------------
-        // --- B. カスタムステータスの表示 ---
+        // [2] 戦闘ステータス
         // ----------------------------------------------------
-        StatMap finalStats = statManager.getTotalStatsFromEquipment(player);
-
-        player.sendMessage("§b§l> 戦闘ステータス");
-
-        // HPの表示 (StatManagerからカスタムHPを取得)
         double currentHp = statManager.getActualCurrentHealth(player);
         double maxHp = statManager.getActualMaxHealth(player);
 
-        // 表示を分かりやすくするため、HP関連は別に処理
-        player.sendMessage(" §cHP: §f" + String.format("%.0f", currentHp) + " §7/ §f" + String.format("%.0f", maxHp));
+        player.sendMessage(" §c§l[ 戦闘ステータス ]");
+        player.sendMessage("  §7HP: §f" + String.format("%.0f", currentHp) + " §7/ §f" + String.format("%.0f", maxHp));
 
-        // 主要なステータス値を表示
-        displayStat(player, "攻撃力", StatType.ATTACK_DAMAGE, finalStats, "§c");
-        displayStat(player, "魔法攻撃力", StatType.MAGIC_DAMAGE, finalStats, "§c");
-        displayStat(player, "防御力", StatType.DEFENSE, finalStats, "§9");
-        displayStat(player, "クリダメ", StatType.CRIT_DAMAGE, finalStats, "§6", true);
-        displayStat(player, "クリ率", StatType.CRIT_CHANCE, finalStats, "§6", true);
-        displayStat(player, "魔力", StatType.MAGIC_DAMAGE, finalStats, "§d");
-        displayStat(player, "魔法耐性", StatType.MAGIC_RESIST, finalStats, "§3");
-        displayStat(player, "回復力", StatType.HP_REGEN, finalStats, "§a");
+        // 2カラムで表示するようなイメージで整形
+        String atk = getStatString("攻撃力", StatType.ATTACK_DAMAGE, finalStats, "§c", false);
+        String def = getStatString("防御力", StatType.DEFENSE, finalStats, "§9", false);
+        player.sendMessage("  " + atk + "   " + def);
 
-        // TraderManagerはプラグインインスタンスから取得することを仮定
+        String matk = getStatString("魔攻力", StatType.MAGIC_DAMAGE, finalStats, "§d", false);
+        String mres = getStatString("魔耐性", StatType.MAGIC_RESIST, finalStats, "§3", false);
+        player.sendMessage("  " + matk + "   " + mres);
+
+        String maoeatk = getStatString("魔AoE", StatType.MAGIC_AOE_DAMAGE, finalStats, "§d", false);
+        String mburstres = getStatString("魔バースト", StatType.MAGIC_BURST_DAMAGE, finalStats, "§3", false);
+        player.sendMessage("  " + maoeatk + "   " + mburstres);
+
+        String critD = getStatString("クリ倍率", StatType.CRIT_DAMAGE, finalStats, "§6", true);
+        String critC = getStatString("クリ率", StatType.CRIT_CHANCE, finalStats, "§6", true);
+        player.sendMessage("  " + critD + "   " + critC);
+
+        player.sendMessage("  " + getStatString("回復力", StatType.HP_REGEN, finalStats, "§a", false));
+        player.sendMessage("");
+
+        // ----------------------------------------------------
+        // [3] 職業スキル (★新規追加)
+        // ----------------------------------------------------
+        player.sendMessage(" §a§l[ 職業スキル ]");
+        PlayerProfessionData profData = professionManager.getData(player);
+
+        for (ProfessionType type : ProfessionType.values()) {
+            long totalExp = profData.getExp(type);
+            int profLevel = professionManager.getLevel(totalExp);
+
+            // 次のレベルまでの進捗計算（簡易版: ProfessionManagerの計算式に依存）
+            // 正確な進捗バーを出すには「現在のレベルの開始Exp」と「次のレベルの開始Exp」が必要ですが、
+            // ここでは簡易的に「現在の総Exp / (現在のレベル+1になるための総Exp)」を表示するか、
+            // 以前のExp計算ロジックを公開する必要があります。
+            // 今回はシンプルに「Lv.XX (Total Exp: YYY)」とします。
+
+            String typeName = formatProfessionName(type);
+            player.sendMessage(String.format("  §7%s: §aLv.%d §7(Total: %d xp)", typeName, profLevel, totalExp));
+        }
+        player.sendMessage("");
+
+        // ----------------------------------------------------
+        // [4] トレーダー信用度
+        // ----------------------------------------------------
+        player.sendMessage(" §e§l[ 信用度 ]");
         TraderManager traderManager = Deepwither.getInstance().getTraderManager();
-        Set<String> allTraderIds = traderManager.getAllTraderIds(); // 全トレーダーIDを取得
-
-        player.sendMessage("§b§l> トレーダー信用度");
+        Set<String> allTraderIds = traderManager.getAllTraderIds();
 
         if (allTraderIds.isEmpty()) {
-            player.sendMessage(" §7現在、ロードされているトレーダーがいません。");
+            player.sendMessage("  §7(データなし)");
         } else {
-            // 全トレーダーIDをループし、CreditManagerから個別に信用度を取得
-            allTraderIds.stream()
-                    .sorted() // 見やすいようにソート
-                    .forEach(traderId -> {
-                        // CreditManagerに getCredit(UUID, traderId) があることを前提
-                        // 信用度がない場合は 0 を返す想定
-                        int credit = creditManager.getCredit(player.getUniqueId(), traderId);
-
-                        player.sendMessage(" §7" + formatTraderId(traderId) + ": §b" + credit);
-                    });
+            for (String traderId : allTraderIds) {
+                int credit = creditManager.getCredit(player.getUniqueId(), traderId);
+                // 0信用度は表示しないなどの調整も可能
+                player.sendMessage("  §7" + formatTraderId(traderId) + ": §b" + credit);
+            }
         }
 
-
-        player.sendMessage("§8§m----------------------------------");
-
+        player.sendMessage("§8§m---------------------------------------");
         return true;
     }
 
-    // ステータス表示のヘルパーメソッド
-    private void displayStat(Player player, String name, StatType type, StatMap stats, String color) {
-        displayStat(player, name, type, stats, color, false);
-    }
+    // --- ヘルパーメソッド群 ---
 
-    // ステータス表示のヘルパーメソッド (パーセンテージ対応)
-    private void displayStat(Player player, String name, StatType type, StatMap stats, String color, boolean isPercent) {
+    // ステータス文字列生成（メッセージ送信ではなく文字列を返すように変更）
+    private String getStatString(String name, StatType type, StatMap stats, String color, boolean isPercent) {
         double value = stats.getFinal(type);
-        String formattedValue;
-
-        if (isPercent) {
-            formattedValue = String.format("%.1f", value) + "%";
-        } else {
-            formattedValue = String.format("%.0f", value);
-        }
-
-        player.sendMessage(" §7" + name + ": " + color + formattedValue);
+        String valStr = isPercent ? String.format("%.1f%%", value) : String.format("%.0f", value);
+        return String.format("§7%s: %s%s", name, color, valStr);
     }
 
-    // 経験値バー生成のヘルパーメソッド
-    private String createProgressBar(double progress, int length, char colorChar, char filledColor, char emptyColor) {
-        int filled = (int) Math.floor(progress * length);
-        StringBuilder bar = new StringBuilder("§" + colorChar + "[");
-
-        // 塗りつぶされた部分
-        for (int i = 0; i < length; i++) {
-            if (i < filled) {
-                bar.append(colorChar).append(filledColor).append("■");
-            } else {
-                bar.append(colorChar).append(emptyColor).append("■");
-            }
-        }
-        bar.append(colorChar).append("]");
-        return bar.toString();
-    }
-
-    // トレーダーIDを見やすい名前に変換するヘルパーメソッド
+    // トレーダーIDの整形
     private String formatTraderId(String traderId) {
-        // 例: lunaris_atelier -> Lunaris Atelier
         if (traderId == null || traderId.isEmpty()) return "Unknown";
+        // アンダースコアをスペースに＆単語ごとにキャピタライズなどの処理があればここに追加
+        return traderId;
+    }
 
-        String formatted = traderId.replace('_', ' ');
-        // 各単語の先頭を大文字にする処理（シンプル化のため、ここでは最初の一文字のみ大文字化）
-        return formatted.substring(0, 1).toUpperCase() + formatted.substring(1);
+    // 職業名の整形
+    private String formatProfessionName(ProfessionType type) {
+        switch (type) {
+            case MINING: return "採掘";
+            // case FISHING: return "釣り"; // 将来用
+            default: return type.name();
+        }
     }
 }

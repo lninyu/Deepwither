@@ -24,7 +24,9 @@ public class GeneratedQuest implements ConfigurationSerializable {
     private final LocationDetails locationDetails; // クエストの舞台となる場所の詳細
     private final RewardDetails rewardDetails;     // クエストの報酬の詳細 (NEW)
 
-    public GeneratedQuest(String title, String questText, String targetMobId, int requiredQuantity, LocationDetails locationDetails, RewardDetails rewardDetails) {
+    private final long expirationTime;
+
+    public GeneratedQuest(String title, String questText, String targetMobId, int requiredQuantity, LocationDetails locationDetails, RewardDetails rewardDetails, long durationMillis) {
         this.questId = UUID.randomUUID();
         this.title = title;
         this.questText = questText;
@@ -32,7 +34,20 @@ public class GeneratedQuest implements ConfigurationSerializable {
         this.requiredQuantity = requiredQuantity;
         this.locationDetails = locationDetails;
         this.rewardDetails = rewardDetails;
+        this.expirationTime = System.currentTimeMillis() + durationMillis;
     }
+
+    // ★追加: 有効期限が切れているかチェック
+    public boolean isExpired() {
+        return System.currentTimeMillis() > expirationTime;
+    }
+
+    // ★追加: 残り時間をミリ秒で取得
+    public long getRemainingTime() {
+        return Math.max(0, expirationTime - System.currentTimeMillis());
+    }
+
+    public long getExpirationTime() { return expirationTime; }
 
     public String getQuestText() {
         return questText;
@@ -69,15 +84,15 @@ public class GeneratedQuest implements ConfigurationSerializable {
     @Override
     public Map<String, Object> serialize() {
         Map<String, Object> map = new HashMap<>();
-        // QuestIdはPlayerQuestDataでキーとして使用するため、ここでは不要
         map.put("title", this.title);
         map.put("questText", this.questText);
         map.put("targetMobId", this.targetMobId);
         map.put("requiredQuantity", this.requiredQuantity);
+        map.put("locationDetails", this.locationDetails);
+        map.put("rewardDetails", this.rewardDetails);
 
-        // ネストされたConfigurationSerializableオブジェクトは、そのままセット可能
-        map.put("locationDetails", this.locationDetails); // LocationDetailsもConfigurationSerializableである前提
-        map.put("rewardDetails", this.rewardDetails);     // RewardDetailsもConfigurationSerializableである前提
+        // ★追加: 期限を保存
+        map.put("expirationTime", this.expirationTime);
         return map;
     }
 
@@ -93,8 +108,18 @@ public class GeneratedQuest implements ConfigurationSerializable {
         LocationDetails locationDetails = (LocationDetails) map.get("locationDetails");
         RewardDetails rewardDetails = (RewardDetails) map.get("rewardDetails");
 
+        long expirationTime;
+        if (map.containsKey("expirationTime")) {
+            Object timeObj = map.get("expirationTime");
+            // YAMLの数値型変換への安全策
+            expirationTime = (timeObj instanceof Number) ? ((Number) timeObj).longValue() : System.currentTimeMillis() + 86400000L;
+        } else {
+            // 既存データ互換用: 現在から24時間後に設定
+            expirationTime = System.currentTimeMillis() + 86400000L;
+        }
+
         // UUIDはPlayerQuestDataのキーで管理されているため、ここではnullを渡すか、適切なコンストラクタを使用
-        return new GeneratedQuest(title, questText, targetMobId, requiredQuantity, locationDetails, rewardDetails);
+        return new GeneratedQuest(title, questText, targetMobId, requiredQuantity, locationDetails, rewardDetails,expirationTime);
     }
 
     /**

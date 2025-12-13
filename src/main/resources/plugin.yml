@@ -44,3 +44,7 @@ commands:
   task:
     description: 進行中のクエストとデイリータスクの進捗を確認します。
     usage: /task
+  party:
+    description: パーティー管理コマンド
+    usage: /party <args>
+    aliases: [ p ]

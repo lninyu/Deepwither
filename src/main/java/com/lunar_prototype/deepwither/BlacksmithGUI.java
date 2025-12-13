@@ -36,7 +36,7 @@ public class BlacksmithGUI {
 
         // 3. クラフトボタン (スロット15)
         ItemStack craftItem = createGuiItem(Material.CRAFTING_TABLE, ChatColor.AQUA + "アイテムクラフト",
-                ChatColor.GRAY + "未実装: 新しいアイテムを作成します。"
+                ChatColor.GRAY + "新しいアイテムを作成します。"
         );
         gui.setItem(15, craftItem);
 

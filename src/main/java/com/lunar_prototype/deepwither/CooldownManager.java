@@ -37,17 +37,21 @@ public class CooldownManager {
 
     // ★ 修正: minCooldown を引数に追加
     private double applyCooldownReduction(UUID uuid, double baseCooldown, double minCooldown) {
-        // 1. クールダウン短縮ステータスを取得 (COOLDOWN_REDUCTION stat type が存在すると仮定)
-        double reduction = StatManager.getTotalStatsFromEquipment(Bukkit.getPlayer(uuid)).getFlat(StatType.COOLDOWN_REDUCTION);
+        // 1. クールダウン短縮ステータスを取得 (例: 20 や 50 が返ってくると想定)
+        double reductionValue = StatManager.getTotalStatsFromEquipment(Bukkit.getPlayer(uuid)).getFlat(StatType.COOLDOWN_REDUCTION);
 
-        // 2. 短縮率の安全な上限を適用 (例: 90%)
-        reduction = Math.min(reduction, 0.9);
+        // ★ 修正点: 100 で割ってパーセンテージ (0.2 など) に変換する
+        double reductionRatio = reductionValue / 100.0;
+
+        // 2. 短縮率の安全な上限を適用 (例: 90% = 0.9)
+        // ここで 0.9 (90%) を超えていたら 0.9 に丸める
+        reductionRatio = Math.min(reductionRatio, 0.9);
 
         // 3. 短縮後のクールダウン時間を計算
-        double reducedCooldown = baseCooldown * (1.0 - reduction);
+        // reductionRatio が 0.2 なら、(1.0 - 0.2) = 0.8倍 になる
+        double reducedCooldown = baseCooldown * (1.0 - reductionRatio);
 
-        // 4. ★ 最小クールダウン時間 (min) を適用
-        // reducedCooldown が minCooldown より小さければ、minCooldown にする
+        // 4. 最小クールダウン時間 (min) を適用
         return Math.max(reducedCooldown, minCooldown);
     }
 

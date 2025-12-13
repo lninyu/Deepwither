@@ -1,5 +1,6 @@
 package com.lunar_prototype.deepwither;
 
+import com.lunar_prototype.deepwither.outpost.OutpostEvent;
 import com.lunar_prototype.deepwither.quest.LocationDetails;
 import com.lunar_prototype.deepwither.quest.PlayerQuestData;
 import com.lunar_prototype.deepwither.quest.PlayerQuestManager;
@@ -7,6 +8,7 @@ import com.lunar_prototype.deepwither.quest.QuestProgress;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldguard.WorldGuard;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
+import com.sk89q.worldguard.protection.managers.RegionManager;
 import com.sk89q.worldguard.protection.regions.ProtectedRegion;
 import com.sk89q.worldguard.protection.regions.RegionContainer;
 import com.sk89q.worldguard.protection.regions.RegionQuery;
@@ -46,6 +48,14 @@ public class MobSpawnManager {
     // Key: Player UUID, Value: そのプレイヤーのためにスポーンさせたMobのUUIDのセット
     private final Map<UUID, Set<UUID>> spawnedMobsTracker = new ConcurrentHashMap<>();
     // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★
+
+    // ★★★ 【新規追加】OutpostMob追跡マップ ★★★★
+    // Key: Mob UUID, Value: Outpost Event ID (Region Name)
+    private final Map<UUID, String> outpostMobTracker = new ConcurrentHashMap<>();
+
+    // ★★★ 【新規追加】通常スポーン無効化リージョン ★★★★
+    // Outpostイベントがアクティブなリージョンを追跡
+    private final Set<String> spawnDisabledRegions = ConcurrentHashMap.newKeySet();
 
     // Key: ティア番号 (1, 2, ...)
     private final Map<Integer, MobTierConfig> mobTierConfigs = new HashMap<>();
@@ -161,6 +171,10 @@ public class MobSpawnManager {
             return;
         }
 
+        if (isOutpostDisabledRegion(playerLoc)) {
+            return; // Outpostリージョン内では通常スポーンを完全にスキップ
+        }
+
         // ★ 2. クエストエリア内のスポーンを優先
         if (trySpawnQuestMob(player, playerLoc, currentMobs)) {
             return;
@@ -194,11 +208,23 @@ public class MobSpawnManager {
 
         // 7. スポーン処理
         if (mobType.equalsIgnoreCase("bandit")) {
-            // Bandit の特別処理: 1-3体をランダムでスポーン
+            // Bandit の特別処理: 1-3体をランダムでスポーン (重み付け抽選)
             List<String> banditList = config.getBanditMobs();
             if (banditList.isEmpty()) return;
 
-            int numBandits = plugin.getRandom().nextInt(3) + 1; // 1, 2, or 3人
+            // --- ★ 確率調整のロジックをここに挿入 ★ ---
+            int numBandits;
+            int weight = plugin.getRandom().nextInt(10); // 0から9までの乱数を生成 (合計10の重み)
+
+            if (weight < 6) {
+                numBandits = 1; // 60%の確率
+            } else if (weight < 9) { // 6以上9未満 (6, 7, 8)
+                numBandits = 2; // 30%の確率
+            } else { // 9
+                numBandits = 3; // 10%の確率
+            }
+            // --- ★ 確率調整のロジックここまで ★ ---
+
             for (int i = 0; i < numBandits; i++) {
                 String banditMobId = banditList.get(plugin.getRandom().nextInt(banditList.size()));
 
@@ -214,9 +240,56 @@ public class MobSpawnManager {
         }
     }
 
+    /**
+     * 特定のリージョン内での通常スポーンを無効化します。
+     */
+    public void disableNormalSpawning(String regionId) {
+        spawnDisabledRegions.add(regionId.toLowerCase());
+    }
+
+    /**
+     * 特定のリージョン内での通常スポーンを再度有効化します。
+     */
+    public void enableNormalSpawning(String regionId) {
+        spawnDisabledRegions.remove(regionId.toLowerCase());
+    }
+
+    /**
+     * 指定されたMobがOutpost Mobである場合に、そのOutpostのリージョンIDを返します。
+     * (EventListenerで使用)
+     */
+    public String getMobOutpostId(Entity mob) {
+        return outpostMobTracker.get(mob.getUniqueId());
+    }
+
+    /**
+     * Outpost Mobの追跡を解除します。
+     * (OutpostEventのmobDefeated()から呼ばれることを想定)
+     */
+    public void untrackOutpostMob(UUID mobUuid) {
+        outpostMobTracker.remove(mobUuid);
+    }
+
     // ----------------------------------------------------
     // --- ヘルパーメソッド (Mob追跡関連) ---
     // ----------------------------------------------------
+
+    /**
+     * プレイヤーがいるLocationが、現在Outpostイベントで通常スポーンが無効化されているリージョン内にあるかチェックします。
+     */
+    private boolean isOutpostDisabledRegion(Location loc) {
+        RegionContainer container = WorldGuard.getInstance().getPlatform().getRegionContainer();
+        RegionQuery query = container.createQuery();
+
+        ApplicableRegionSet set = query.getApplicableRegions(BukkitAdapter.adapt(loc));
+
+        for (ProtectedRegion region : set) {
+            if (spawnDisabledRegions.contains(region.getId().toLowerCase())) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * 追跡マップから、特定のプレイヤーのためにスポーンしたMobの数を返す。
@@ -258,6 +331,90 @@ public class MobSpawnManager {
     }
 
     // ----------------------------------------------------
+    // --- Outpostイベントによるスポーン処理 ---
+    // ----------------------------------------------------
+
+    /**
+     * Outpostイベントの要求に基づき、Mobをスポーンさせます。
+     * @param mobId Mythic Mob ID
+     * @param count スポーンさせる数
+     * @param regionId 対象のリージョンID
+     * @param fixedY Y座標の固定値 (outpost.ymlで設定)
+     * @param event OutpostEventの参照
+     * @return スポーンさせたMobの総数
+     */
+    public int spawnOutpostMobs(String mobId, int count, String regionId, double fixedY, OutpostEvent event) {
+        World world = Bukkit.getWorld(event.getOutpostData().getWorldName());
+        if (world == null) return 0;
+
+        int spawnedCount = 0;
+
+        for (int i = 0; i < count; i++) {
+            // 1. リージョン内のランダムなLocationを取得
+            Location spawnLoc = getRandomLocationInRegion(world, regionId, fixedY);
+
+            if (spawnLoc != null) {
+                // 2. Mythic Mobをスポーン
+                UUID mobUuid = spawnMythicMob(mobId, spawnLoc);
+
+                if (mobUuid != null) {
+                    // 3. Outpost Mobとして追跡
+                    outpostMobTracker.put(mobUuid, regionId);
+                    spawnedCount++;
+                }
+            }
+        }
+
+        return spawnedCount;
+    }
+
+    /**
+     * 指定されたリージョンIDに紐づくOutpost Mobを全て削除し、追跡を解除します。
+     * (ウェーブ時間切れ時やイベント強制終了時に使用)
+     * * @param regionId 削除対象のOutpostのリージョンID
+     */
+    public void removeAllOutpostMobs(String regionId) {
+        if (regionId == null) return;
+
+        // 削除対象のMob UUIDリストを一時的に保持
+        List<UUID> mobsToRemove = new ArrayList<>();
+
+        // 1. 追跡マップを反復処理し、対象のMobを特定
+        for (Map.Entry<UUID, String> entry : outpostMobTracker.entrySet()) {
+            if (regionId.equalsIgnoreCase(entry.getValue())) {
+                mobsToRemove.add(entry.getKey());
+            }
+        }
+
+        if (mobsToRemove.isEmpty()) {
+            Bukkit.getLogger().info("[MobSpawnManager] リージョン '" + regionId + "' に残存Mobはありませんでした。");
+            return;
+        }
+
+        int removedCount = 0;
+
+        // 2. Mobを削除
+        // Mobが存在するワールドを特定できれば、より効率的ですが、ここでは全てのワールドをスキャンします。
+        // (OutpostEventが OutpostData から WorldName を取得できるため、本当はそちらを利用すると高速です)
+
+        for (World world : Bukkit.getWorlds()) {
+            for (Entity entity : world.getEntities()) {
+                if (mobsToRemove.contains(entity.getUniqueId())) {
+                    entity.remove(); // Mobをワールドから削除
+                    removedCount++;
+                }
+            }
+        }
+
+        // 3. 追跡マップから削除
+        for (UUID mobUuid : mobsToRemove) {
+            outpostMobTracker.remove(mobUuid);
+        }
+
+        Bukkit.getLogger().info("[MobSpawnManager] リージョン '" + regionId + "' から残存Mobを " + removedCount + " 体削除しました。");
+    }
+
+    // ----------------------------------------------------
     // --- ヘルパーメソッド (既存の修正) ---
     // ----------------------------------------------------
 
@@ -291,6 +448,33 @@ public class MobSpawnManager {
             }
         }
         return null;
+    }
+
+    /**
+     * WorldGuardリージョン内のランダムなLocationを取得し、Y座標を固定する。
+     */
+    private Location getRandomLocationInRegion(World world, String regionId, double fixedY) {
+        RegionContainer container = WorldGuard.getInstance().getPlatform().getRegionContainer();
+        RegionManager regionManager = container.get(BukkitAdapter.adapt(world));
+
+        if (regionManager == null) return null;
+
+        ProtectedRegion region = regionManager.getRegion(regionId);
+        if (region == null) return null;
+
+        Random random = plugin.getRandom();
+
+        // リージョン境界内でのランダムな座標計算
+        int minX = region.getMinimumPoint().getBlockX();
+        int maxX = region.getMaximumPoint().getBlockX();
+        int minZ = region.getMinimumPoint().getBlockZ();
+        int maxZ = region.getMaximumPoint().getBlockZ();
+
+        double x = minX + random.nextDouble() * (maxX - minX + 1);
+        double z = minZ + random.nextDouble() * (maxZ - minZ + 1);
+
+        // Y座標を固定値に設定
+        return new Location(world, x, fixedY, z);
     }
 
 

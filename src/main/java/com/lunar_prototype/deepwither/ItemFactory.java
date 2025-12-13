@@ -1,18 +1,26 @@
 package com.lunar_prototype.deepwither;
 
+import com.lunar_prototype.deepwither.outpost.OutpostManager;
 import com.lunar_prototype.deepwither.quest.GeneratedQuest;
 import com.lunar_prototype.deepwither.quest.QuestGenerator;
+import io.papermc.paper.block.BlockPredicate;
 import io.papermc.paper.datacomponent.DataComponentTypes;
-import io.papermc.paper.datacomponent.item.Equippable;
-import io.papermc.paper.datacomponent.item.ItemArmorTrim;
-import io.papermc.paper.datacomponent.item.ItemAttributeModifiers;
-import io.papermc.paper.datacomponent.item.TooltipDisplay;
+import io.papermc.paper.datacomponent.item.*;
+import io.papermc.paper.registry.RegistryKey;
+import io.papermc.paper.registry.TypedKey;
+import io.papermc.paper.registry.set.RegistryKeySet;
+import io.papermc.paper.registry.set.RegistrySet;
 import jdk.jfr.DataAmount;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.component.DataComponentType;
-import org.bukkit.*;
+import org.bukkit.Bukkit;
+import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockType;
 import org.bukkit.command.*;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.craftbukkit.inventory.CraftItemStack;
@@ -219,6 +227,11 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
             }
             return true;
         }
+        //reset
+        if (args.length == 1 && args[0].equalsIgnoreCase("reset")) {
+            Deepwither.getInstance().getLevelManager().resetLevel(player);
+            return true;
+        }
 
         // ステータスリセット処理
         if (args.length == 1 && args[0].equalsIgnoreCase("skilltreeresets")) {
@@ -244,6 +257,12 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
             } catch (NumberFormatException e) {
                 player.sendMessage("§c数値を入力してください。");
             }
+            return true;
+        }
+
+        // ステータスポイント付与処理
+        if (args.length == 2 && args[0].equalsIgnoreCase("spawnoutpost")) {
+            OutpostManager.getInstance().startRandomOutpost();
             return true;
         }
 
@@ -418,7 +437,11 @@ class ItemLoader {
             new ModifierDefinition(StatType.CRIT_DAMAGE, 0.3, 5.0, 10.0),
             new ModifierDefinition(StatType.MAX_HEALTH, 1.0, 10.0, 20.0),
             new ModifierDefinition(StatType.MAGIC_DAMAGE, 1.0, 3.0, 5.0),
-            new ModifierDefinition(StatType.MAGIC_RESIST, 1.0, 2.0, 5.0)
+            new ModifierDefinition(StatType.MAGIC_RESIST, 1.0, 2.0, 5.0),
+            new ModifierDefinition(StatType.PROJECTILE_DAMAGE, 1.0, 2.0, 10.0),
+            new ModifierDefinition(StatType.MAGIC_BURST_DAMAGE, 1.0, 3.0, 5.0),
+            new ModifierDefinition(StatType.MAGIC_AOE_DAMAGE, 1.0, 3.0, 5.0)
+
     );
 
     // モディファイアー定義用ヘルパークラス
@@ -700,6 +723,48 @@ class ItemLoader {
                         //System.out.println("Applied armor trim: " + armortrim + " with material: " + armortrimmaterial + " to item " + key);
                     } else {
                         System.err.println("Failed to get trim pattern or material for item: " + key);
+                    }
+                }
+
+                List<String> canBreakBlocks = config.getStringList(key + ".can_destroy");
+
+                if (!canBreakBlocks.isEmpty()) {
+
+                    RegistryKey<BlockType> blockRegistryKey = RegistryKey.BLOCK;
+                    Registry<BlockType> blockRegistry = Bukkit.getRegistry(BlockType.class);
+                    List<TypedKey<BlockType>> typedBlockKeys = new ArrayList<>();
+
+                    for (String blockId : canBreakBlocks) {
+                        NamespacedKey blockKey;
+                        if (!blockId.contains(":")) {
+                            blockKey = NamespacedKey.minecraft(blockId.toLowerCase());
+                        } else {
+                            blockKey = NamespacedKey.fromString(blockId);
+                        }
+
+                        if (blockKey != null && blockRegistry.get(blockKey) != null) {
+                            typedBlockKeys.add(TypedKey.create(blockRegistryKey, blockKey));
+                        } else {
+                            System.err.println("無効なブロックID: " + blockId);
+                        }
+                    }
+
+                    if (!typedBlockKeys.isEmpty()) {
+                        // 【修正1】変数の型を RegistryKeySet に変更
+                        // RegistrySet.keySet(...) は RegistryKeySet を返します
+                        RegistryKeySet<BlockType> blockKeySet = RegistrySet.keySet(blockRegistryKey, typedBlockKeys);
+
+                        // 【修正2】BlockPredicate.predicate() からビルダーを開始
+                        // blocks() は RegistryKeySet を要求します
+                        BlockPredicate blockPredicate = BlockPredicate.predicate()
+                                .blocks(blockKeySet)
+                                .build();
+
+                        // 【修正3】List.of() でラップして渡す
+                        // itemAdventurePredicate は List<BlockPredicate> を要求します
+                        ItemAdventurePredicate canBreakPredicate = ItemAdventurePredicate.itemAdventurePredicate(List.of(blockPredicate));
+
+                        item.setData(DataComponentTypes.CAN_BREAK, canBreakPredicate);
                     }
                 }
 

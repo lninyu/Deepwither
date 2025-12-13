@@ -7,9 +7,15 @@ import java.util.Random;
 public class QuestGenerator {
 
     private final LlmClient llmClient;
+    private final Random random; // Randomインスタンスをフィールドで保持推奨
+
+    // ★追加: クエスト有効期限の範囲設定 (ミリ秒)
+    private static final long MIN_DURATION_MILLIS = 1000L * 60 * 60 * 1; // 最短 1時間
+    private static final long MAX_DURATION_MILLIS = 1000L * 60 * 60 * 6; // 最長 6時間
 
     public QuestGenerator() {
         this.llmClient = new LlmClient();
+        this.random = new Random();
     }
 
     /**
@@ -19,31 +25,29 @@ public class QuestGenerator {
      */
     public GeneratedQuest generateQuest(int difficultyLevel) {
         // 1. 構成要素をランダムに決定
-        ExterminationType targetType = ExterminationType.values()[new Random().nextInt(ExterminationType.values().length)];
-        LocationDetails locationDetails = QuestComponentPool.getRandomLocationDetails(); // LocationDetailsを取得
+        ExterminationType targetType = ExterminationType.values()[random.nextInt(ExterminationType.values().length)];
+        LocationDetails locationDetails = QuestComponentPool.getRandomLocationDetails();
         String motivation = QuestComponentPool.getRandomMotivation();
         int quantity = QuestComponentPool.calculateRandomQuantity(difficultyLevel);
 
         // 2. 報酬を決定
-        QuestComponentPool.RewardValue rewardValue = QuestComponentPool.calculateBaseCurrencyAndExp(difficultyLevel); // 通貨と経験値
-        String rewardItemId = QuestComponentPool.getRandomRewardItemId(); // アイテムID
-        int rewardItemQuantity = QuestComponentPool.getRandomItemQuantity(rewardItemId, difficultyLevel); // アイテム個数
+        QuestComponentPool.RewardValue rewardValue = QuestComponentPool.calculateBaseCurrencyAndExp(difficultyLevel);
+        String rewardItemId = QuestComponentPool.getRandomRewardItemId();
+        int rewardItemQuantity = QuestComponentPool.getRandomItemQuantity(rewardItemId, difficultyLevel);
 
-        // ItemNameResolverを使用してカスタムアイテムIDから表示名を取得
-        // 例: "SMALL_HEALTH_POTION" -> "小さな回復薬"
         String rewardItemDisplayName = Deepwither.getInstance().getItemNameResolver().resolveItemDisplayName(rewardItemId);
 
-        // 3. RewardDetailsを作成 (ID、表示名、個数をすべて渡す)
+        // 3. RewardDetailsを作成
         RewardDetails rewardDetails = new RewardDetails(
                 rewardValue.coin,
                 rewardValue.exp,
-                rewardItemId,               // ゲームロジック用ID
-                rewardItemDisplayName,      // LLM/表示用名
-                rewardItemQuantity          // 個数
+                rewardItemId,
+                rewardItemDisplayName,
+                rewardItemQuantity
         );
 
         // 4. LLM呼び出しのためのプロンプトをアセンブル
-        String prompt = QuestPromptAssembler.assemblePrompt(targetType,locationDetails,motivation,quantity,rewardDetails.getLlmRewardText());
+        String prompt = QuestPromptAssembler.assemblePrompt(targetType, locationDetails, motivation, quantity, rewardDetails.getLlmRewardText());
 
         // 5. LLMを呼び出し、依頼文を生成
         String generatedText = llmClient.generateText(prompt);
@@ -56,39 +60,38 @@ public class QuestGenerator {
             );
         }
 
-        // 7. 生成テキストからタイトルと本文を分離（LLMの出力形式に依存）
-        // 安定プロンプトの形式: "タイトル：「...」\n本文：「...<END>" の形式を想定してパース
+        // 7. 生成テキストからタイトルと本文を分離
         String title = "無題のクエスト";
         String body = generatedText;
 
-        // タイトル抽出
         int titleStart = generatedText.indexOf("タイトル：「");
         int titleEnd = generatedText.indexOf("」\n");
         if (titleStart != -1 && titleEnd != -1 && titleEnd > titleStart) {
-            // "タイトル：「" の長さだけ進める
             title = generatedText.substring(titleStart + "タイトル：「".length(), titleEnd).trim();
         } else {
-            // タイトルが見つからない場合、暫定的に場所名を使用
             title = String.format("%s周辺の警戒レベル引き下げ任務", locationDetails.getName());
         }
 
-        // 本文抽出
         int bodyStart = generatedText.indexOf("本文：「");
         if (bodyStart != -1) {
             body = generatedText.substring(bodyStart + "本文：「".length()).trim();
         }
 
-        // <END>と末尾の引用符を除去
         body = body.replace("<END>", "").replaceAll("」$", "").trim();
 
-        // 8. 最終的なクエストオブジェクトを作成して返す
+        // ★追加: 有効期限をランダムに決定
+        // 難易度に応じて時間を変えるなどのロジックもここに追加可能
+        long duration = MIN_DURATION_MILLIS + (long)(random.nextDouble() * (MAX_DURATION_MILLIS - MIN_DURATION_MILLIS));
+
+        // 8. 最終的なクエストオブジェクトを作成して返す (durationを追加)
         return new GeneratedQuest(
                 title,
                 body,
-                targetType.getMobId(), // Mob IDを使用
+                targetType.getMobId(),
                 quantity,
                 locationDetails,
-                rewardDetails
+                rewardDetails,
+                duration // ★コンストラクタの変更に対応
         );
     }
 }

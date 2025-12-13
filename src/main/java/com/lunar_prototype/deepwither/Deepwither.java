@@ -1,8 +1,18 @@
 package com.lunar_prototype.deepwither;
 
+import com.lunar_prototype.deepwither.api.DeepwitherPartyAPI;
+import com.lunar_prototype.deepwither.crafting.CraftingGUI;
+import com.lunar_prototype.deepwither.crafting.CraftingListener;
+import com.lunar_prototype.deepwither.crafting.CraftingManager;
 import com.lunar_prototype.deepwither.data.*;
 import com.lunar_prototype.deepwither.loot.LootChestListener;
 import com.lunar_prototype.deepwither.loot.LootChestManager;
+import com.lunar_prototype.deepwither.outpost.OutpostConfig;
+import com.lunar_prototype.deepwither.outpost.OutpostDamageListener;
+import com.lunar_prototype.deepwither.outpost.OutpostManager;
+import com.lunar_prototype.deepwither.outpost.OutpostRegionListener;
+import com.lunar_prototype.deepwither.party.PartyManager;
+import com.lunar_prototype.deepwither.profession.ProfessionManager;
 import com.lunar_prototype.deepwither.quest.*;
 import com.lunar_prototype.deepwither.town.TownBurstManager;
 import com.lunar_prototype.deepwither.util.MythicMobSafeZoneManager;
@@ -11,6 +21,9 @@ import io.lumine.mythic.bukkit.events.MythicMechanicLoadEvent;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -74,8 +87,14 @@ public final class  Deepwither extends JavaPlugin {
     private LootChestManager lootChestManager;
     private TownBurstManager townBurstManager;
     private MythicMobSafeZoneManager mythicMobSafeZoneManager;
+    private CraftingManager craftingManager;
+    private CraftingGUI craftingGUI;
+    private ProfessionManager professionManager;
+    private PartyManager partyManager;
+    private DeepwitherPartyAPI partyAPI;
     private static Economy econ = null;
     private final java.util.Random random = new java.util.Random();
+    private OutpostManager outpostManager;
 
     public AttributeManager getAttributeManager() {
         return attributeManager;
@@ -132,6 +151,10 @@ public final class  Deepwither extends JavaPlugin {
         return itemNameResolver;
     }
     public PlayerQuestManager getPlayerQuestManager() {return playerQuestManager;}
+    public CraftingManager getCraftingManager() { return craftingManager; }
+    public CraftingGUI getCraftingGUI() { return craftingGUI; }
+    public ProfessionManager getProfessionManager(){return professionManager;}
+
 
     @Override
     public void onEnable() {
@@ -193,6 +216,12 @@ public final class  Deepwither extends JavaPlugin {
         lootChestManager = new LootChestManager(this);
         artifactGUI = new ArtifactGUI();
         mythicMobSafeZoneManager = new MythicMobSafeZoneManager(this);
+        professionManager = new ProfessionManager(this);
+        partyManager = new PartyManager();
+        this.partyAPI = new DeepwitherPartyAPI(partyManager); // ★ 初期化
+        this.craftingManager = new CraftingManager(this);
+        this.craftingGUI = new CraftingGUI(this);
+        getServer().getPluginManager().registerEvents(new CraftingListener(this), this);
         artifactGUIListener = new ArtifactGUIListener(artifactGUI,statManager);
         this.skillAssignmentGUI = new SkillAssignmentGUI(); // 必ず enable 時に初期化
         getServer().getPluginManager().registerEvents(skillAssignmentGUI, this);
@@ -232,10 +261,16 @@ public final class  Deepwither extends JavaPlugin {
             return;
         }
 
-        Bukkit.getPluginManager().registerEvents(new MobKillListener(levelManager, getConfig()), this);
+        OutpostConfig outpostConfig = new OutpostConfig(this,"outpost.yml");
+
+        OutpostManager.initialize(this, outpostConfig);
+
+        Bukkit.getPluginManager().registerEvents(new MobKillListener(levelManager, getConfig(),OutpostManager.getInstance(),partyManager), this);
         getServer().getPluginManager().registerEvents(new SafeZoneListener(this),this);
         getServer().getPluginManager().registerEvents(new PlayerAnimationListener(),this);
-        this.getCommand("status").setExecutor(new StatusCommand(levelManager, statManager,creditManager));
+        this.getCommand("status").setExecutor(new StatusCommand(levelManager, statManager,creditManager,professionManager));
+        getServer().getPluginManager().registerEvents(new OutpostRegionListener(OutpostManager.getInstance()),this);
+        getServer().getPluginManager().registerEvents(new OutpostDamageListener(OutpostManager.getInstance()),this);
 
         Bukkit.getPluginManager().registerEvents(new Listener() {
             @EventHandler
@@ -262,12 +297,16 @@ public final class  Deepwither extends JavaPlugin {
                 attributeManager.load(e.getPlayer().getUniqueId());
                 skilltreeManager.load(e.getPlayer().getUniqueId());
                 dailyTaskManager.loadPlayer(e.getPlayer());
+                craftingManager.loadPlayer(e.getPlayer());
+                professionManager.loadPlayer(e.getPlayer());
             }
             @EventHandler
             public void onQuit(PlayerQuitEvent e) {
                 levelManager.unload(e.getPlayer().getUniqueId());
                 attributeManager.unload(e.getPlayer().getUniqueId());
                 dailyTaskManager.saveAndUnloadPlayer(e.getPlayer().getUniqueId());
+                craftingManager.saveAndUnloadPlayer(e.getPlayer().getUniqueId());
+                professionManager.saveAndUnloadPlayer(e.getPlayer());
             }
         }, this);
 
@@ -278,6 +317,15 @@ public final class  Deepwither extends JavaPlugin {
                 mana.regen(regenAmount);
             }
         }, 20L, 20L); // 毎秒実行
+
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                AttributeInstance attr = p.getAttribute(Attribute.ATTACK_SPEED);
+                if (attr == null) return;
+                NamespacedKey baseAttackSpeed = NamespacedKey.minecraft("base_attack_speed");
+                attr.removeModifier(baseAttackSpeed);
+            }
+        }, 1L, 1L); // 毎秒実行
 
         this.mobSpawnManager = new MobSpawnManager(this,playerQuestManager);
         townBurstManager.startBurstTask();
@@ -309,6 +357,7 @@ public final class  Deepwither extends JavaPlugin {
         getCommand("blacksmith").setExecutor(new BlacksmithCommand());
         getCommand("questnpc").setExecutor(new QuestCommand(this, guildQuestManager));
         getCommand("task").setExecutor(new TaskCommand(this));
+        getCommand("party").setExecutor(new PartyCommand(partyManager));
     }
 
     @Override
@@ -318,6 +367,7 @@ public final class  Deepwither extends JavaPlugin {
             levelManager.unload(p.getUniqueId());
             attributeManager.unload(p.getUniqueId());
         }
+        professionManager.shutdown();
         townBurstManager.stopBurstTask();
         mythicMobSafeZoneManager.stopCheckTask();
         lootChestManager.removeAllLootChests();
@@ -344,6 +394,10 @@ public final class  Deepwither extends JavaPlugin {
 
     public java.util.Random getRandom() {
         return random;
+    }
+
+    public DeepwitherPartyAPI getPartyAPI() {
+        return partyAPI;
     }
 
     private void shutdownExecutor() {

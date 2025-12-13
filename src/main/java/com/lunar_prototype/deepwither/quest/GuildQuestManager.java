@@ -7,10 +7,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 
@@ -160,6 +157,28 @@ public class GuildQuestManager implements Runnable {
         List<CompletableFuture<Void>> refillFutures = new ArrayList<>();
 
         for (QuestLocation location : guildLocations) {
+            // ★修正: 期限切れクエストの削除処理
+            // ConcurrentModificationExceptionを防ぐため、一旦コピーを作成してループさせる
+            // (QuestLocationの実装がスレッドセーフか不明なため、念のためリストコピーをとる)
+            List<GeneratedQuest> snapshot = new ArrayList<>(location.getCurrentQuests());
+            int removedCount = 0;
+
+            for (GeneratedQuest quest : snapshot) {
+                if (quest.isExpired()) {
+                    // ★重要: リストから直接 remove するのではなく、location のメソッド経由で削除する
+                    // これにより確実に QuestLocation 内のデータが更新される
+                    GeneratedQuest removed = location.removeQuest(quest.getQuestId());
+                    if (removed != null) {
+                        removedCount++;
+                    }
+                }
+            }
+
+            if (removedCount > 0) {
+                plugin.getLogger().info(String.format("[%s] Removed %d expired quests.", location.getLocationName(), removedCount));
+            }
+
+            // 削除処理が終わった後で、現在の数を再取得する
             int currentCount = location.getQuestCount();
             int requiredRefill = QuestLocation.MAX_QUESTS - currentCount;
 
@@ -167,16 +186,18 @@ public class GuildQuestManager implements Runnable {
                 plugin.getLogger().info(String.format("[%s] Quests missing: %d. Starting generation...", location.getLocationName(), requiredRefill));
 
                 // ★ クエスト生成処理を非同期で実行
+                // final変数をラムダ式内で使うための変数定義
+                final int refillAmount = requiredRefill;
+
                 CompletableFuture<Void> refillFuture = CompletableFuture.runAsync(() -> {
                             // 非同期スレッドで必要な数だけクエストを生成
-                            for (int i = 0; i < requiredRefill; i++) {
+                            for (int i = 0; i < refillAmount; i++) {
                                 int difficulty = 1 + (int)(Math.random() * 3);
 
                                 // 時間のかかる処理: クエスト生成
                                 GeneratedQuest newQuest = questGenerator.generateQuest(difficulty);
 
-                                // クエストリストへの追加は、非同期タスク内で行う (Listはスレッドセーフではないが、
-                                // このループ内でしかアクセスしないため、問題は少ない。必要に応じてロックを検討)
+                                // クエストリストへの追加
                                 location.addQuest(newQuest);
                             }
                         }, Deepwither.getInstance().getAsyncExecutor()) // ★ プラグインの非同期Executorを利用
@@ -192,13 +213,6 @@ public class GuildQuestManager implements Runnable {
             }
         }
 
-        // 全ての非同期生成が完了した後、最終処理を行うための処理をここに記述できます
-        // (現在は run() メソッドが後のデータ保存処理を担っているため、ここでは特に必須ではない)
-        CompletableFuture.allOf(refillFutures.toArray(new CompletableFuture[0]))
-                .exceptionally(e -> {
-                    plugin.getLogger().severe("One or more quest generation tasks failed: " + e.getMessage());
-                    return null;
-                });
         return refillFutures;
     }
 
