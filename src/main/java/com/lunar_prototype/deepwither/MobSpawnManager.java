@@ -32,32 +32,22 @@ public class MobSpawnManager {
 
     // 設定値
     private final String targetWorldName = "Aether";
-    private final long spawnIntervalTicks = 5 * 20L;
+    private final long spawnIntervalTicks = 7 * 20L;
 
     private static final int MOB_CAP_PER_PLAYER = 10;
     private static final int COUNT_RADIUS = 20;
 
     private static final double QUEST_AREA_RADIUS_SQUARED = 20.0 * 20.0;
 
-    // --- 新規追加: スポーンロック機能 ---
     private final Map<UUID, Location> spawnLockLocations = new HashMap<>();
     private static final double MOVE_UNLOCK_DISTANCE_SQUARED = 30.0 * 30.0;
-    // ----------------------------------
 
-    // ★★★★ 【追加】スポーンMob追跡マップ ★★★★
-    // Key: Player UUID, Value: そのプレイヤーのためにスポーンさせたMobのUUIDのセット
     private final Map<UUID, Set<UUID>> spawnedMobsTracker = new ConcurrentHashMap<>();
-    // ★★★★★★★★★★★★★★★★★★★★★★★★★★★★
 
-    // ★★★ 【新規追加】OutpostMob追跡マップ ★★★★
-    // Key: Mob UUID, Value: Outpost Event ID (Region Name)
     private final Map<UUID, String> outpostMobTracker = new ConcurrentHashMap<>();
 
-    // ★★★ 【新規追加】通常スポーン無効化リージョン ★★★★
-    // Outpostイベントがアクティブなリージョンを追跡
     private final Set<String> spawnDisabledRegions = ConcurrentHashMap.newKeySet();
 
-    // Key: ティア番号 (1, 2, ...)
     private final Map<Integer, MobTierConfig> mobTierConfigs = new HashMap<>();
 
     public MobSpawnManager(Deepwither plugin, PlayerQuestManager playerQuestManager) {
