@@ -237,6 +237,7 @@ public final class  Deepwither extends JavaPlugin {
         skillCastManager = new SkillCastManager();
         cooldownManager = new CooldownManager();
         layerMoveManager = new LayerMoveManager();
+        layerMoveManager.load(getDataFolder());
         // クエスト設定のロード
         loadGuildQuestConfig();
 
