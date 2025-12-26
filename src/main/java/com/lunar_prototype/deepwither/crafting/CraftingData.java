@@ -10,6 +10,8 @@ public class CraftingData implements ConfigurationSerializable {
 
     private final UUID playerId;
     private final List<CraftingJob> jobs;
+    // メモリ上でのみ保持し、保存はJSONStoreに任せる
+    private Set<String> unlockedRecipes = new HashSet<>();
 
     public CraftingData(UUID playerId) {
         this.playerId = playerId;
@@ -18,6 +20,20 @@ public class CraftingData implements ConfigurationSerializable {
 
     public UUID getPlayerId() { return playerId; }
     public List<CraftingJob> getJobs() { return jobs; }
+
+    public Set<String> getUnlockedRecipes() { return unlockedRecipes; }
+
+    public void setUnlockedRecipes(Set<String> recipes) {
+        this.unlockedRecipes = recipes;
+    }
+
+    public void unlockRecipe(String recipeId) {
+        this.unlockedRecipes.add(recipeId);
+    }
+
+    public boolean hasRecipe(String recipeId) {
+        return unlockedRecipes.contains(recipeId);
+    }
 
     public void addJob(CraftingJob job) {
         this.jobs.add(job);
@@ -31,7 +47,7 @@ public class CraftingData implements ConfigurationSerializable {
     public Map<String, Object> serialize() {
         Map<String, Object> map = new HashMap<>();
         map.put("playerId", playerId.toString());
-
+        // jobsのシリアライズは既存通り
         List<Map<String, Object>> jobsList = new ArrayList<>();
         for (CraftingJob job : jobs) {
             Map<String, Object> jobMap = new HashMap<>();
@@ -56,7 +72,7 @@ public class CraftingData implements ConfigurationSerializable {
                         UUID.fromString((String) jobMap.get("jobId")),
                         (String) jobMap.get("recipeId"),
                         (String) jobMap.get("resultItemId"),
-                        (long) jobMap.get("completionTime") // YAMLによってはNumberキャストが必要な場合あり
+                        ((Number) jobMap.get("completionTime")).longValue()
                 ));
             }
         }

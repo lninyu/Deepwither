@@ -20,9 +20,11 @@ public class ArtifactGUI implements Listener {
     // ★ 装飾スロットを定義
     public static final int[] BORDER_SLOTS = {0, 1, 2, 6, 7, 8};
 
+    public static final int BACKPACK_SLOT = 13;
+
     public ArtifactGUI() {
         // GUIの作成 (9スロット)
-        artifactGUI = Bukkit.createInventory(null, 9, "§8[GUI] §6アーティファクト"); // タイトルを見やすく修正
+        artifactGUI = Bukkit.createInventory(null, 18, "§8[GUI] §6アーティファクト"); // タイトルを見やすく修正
 
         // 1. アーティファクトスロットのプレースホルダーを準備
         ItemStack artifactPlaceholder = new ItemStack(Material.CYAN_STAINED_GLASS_PANE); // 色を変えて視認性向上
@@ -45,6 +47,12 @@ public class ArtifactGUI implements Listener {
         for (int i : ARTIFACT_SLOTS) {
             artifactGUI.setItem(i, artifactPlaceholder);
         }
+
+        ItemStack bpPlaceholder = new ItemStack(Material.PURPLE_STAINED_GLASS_PANE);
+        ItemMeta bpMeta = bpPlaceholder.getItemMeta();
+        bpMeta.setDisplayName("§d【背中装備スロット】");
+        bpPlaceholder.setItemMeta(bpMeta);
+        artifactGUI.setItem(BACKPACK_SLOT, bpPlaceholder);
     }
 
     public void openArtifactGUI(Player player) {
@@ -68,15 +76,16 @@ public class ArtifactGUI implements Listener {
             artifactGUI.setItem(i, artifactPlaceholder);
         }
 
-        // 2. 保存されたアーティファクトのリストを取得
+        // 2. 保存されたアーティファクトの配置
         List<ItemStack> savedArtifacts = Deepwither.getInstance().getArtifactManager().getPlayerArtifacts(player);
+        for (int i = 0; i < savedArtifacts.size() && i < ARTIFACT_SLOTS.length; i++) {
+            artifactGUI.setItem(ARTIFACT_SLOTS[i], savedArtifacts.get(i));
+        }
 
-        // 3. 取得したアイテムをGUIのスロットに配置
-        for (int i = 0; i < savedArtifacts.size(); i++) {
-            if (i < ARTIFACT_SLOTS.length) {
-                // savedArtifactsのアイテムを直接配置 (プレースホルダーを上書き)
-                artifactGUI.setItem(ARTIFACT_SLOTS[i], savedArtifacts.get(i));
-            }
+        // 3. 保存された背中装備の配置
+        ItemStack savedBackpack = Deepwither.getInstance().getArtifactManager().getPlayerBackpack(player);
+        if (savedBackpack != null) {
+            artifactGUI.setItem(BACKPACK_SLOT, savedBackpack);
         }
     }
 

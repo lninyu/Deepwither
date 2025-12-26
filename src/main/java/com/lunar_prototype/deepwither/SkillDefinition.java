@@ -13,5 +13,6 @@ public class SkillDefinition {
     public int cooldown;
     public int cooldown_min;
     public String mythicSkillId;
+    public double castTime; // 追加: 詠唱時間（秒）
 }
 

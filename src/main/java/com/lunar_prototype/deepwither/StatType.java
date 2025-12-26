@@ -28,6 +28,7 @@ public enum StatType {
     SKILL_POWER("スキル威力", "§b","■"),
     WEAR("損耗率", "§b","■"),
     REACH("リーチ増加", "§b","■"),
+    REDUCES_MOVEMENT_SPEED_DECREASE("移動速度低下軽減", "§b","■"),
     MASTERY("マスタリー", "§6","■"),
     MAX_MANA("最大マナ", "§b","☆"),
     COOLDOWN_REDUCTION("クールダウン短縮", "§8","⌛"),
@@ -82,7 +83,7 @@ class LoreBuilder {
         ItemMeta meta = item.getItemMeta();
         // Metaがない、またはLoreがない場合は新規作成（build）へ
         if (meta == null || !meta.hasLore()) {
-            return build(newStats, false, null, null, null, null, null);
+            return build(newStats, false, null, null, null, null, null,null);
         }
 
         List<String> existingLore = meta.getLore();
@@ -100,7 +101,7 @@ class LoreBuilder {
         // 区切り線が2つ未満の場合は構造が特殊なため、安全策として既存buildを呼ぶか、
         // あるいは構造を維持できないため新規作成する
         if (separatorIndices.size() < 2) {
-            return build(newStats, false, null, null, null, null, null);
+            return build(newStats, false, null, null, null, null, null,null);
         }
 
         // --- 2. セクションの特定 ---
@@ -153,8 +154,16 @@ class LoreBuilder {
         return newLore;
     }
 
-    public static List<String> build(StatMap stats, boolean compact, String itemType, List<String> flavorText, ItemLoader.RandomStatTracker tracker,String rarity,Map<StatType, Double> appliedModifiers) {
+    public static List<String> build(StatMap stats, boolean compact, String itemType, List<String> flavorText, ItemLoader.RandomStatTracker tracker,String rarity,Map<StatType, Double> appliedModifiers, FabricationGrade grade) {
         List<String> lore = new ArrayList<>();
+
+        // ★ FG表示を追加 (最上部)
+        // grade が null または STANDARD(FG-1) の場合は表示しない、という仕様も可能ですが
+        // 「別物レベル」のシステムなら FG-1 も表示したほうが統一感が出ます。
+        if (grade != null) {
+            lore.add(grade.getDisplayName());
+            // lore.add(""); // 必要なら空行
+        }
 
         // 上部: タイプ表示
         if (itemType != null && !itemType.isEmpty()) {

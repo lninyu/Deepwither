@@ -1,5 +1,6 @@
 package com.lunar_prototype.deepwither;
 
+import com.lunar_prototype.deepwither.api.event.GetTreeNode;
 import com.lunar_prototype.deepwither.api.event.OpenAttributes;
 import com.lunar_prototype.deepwither.api.event.OpenSkilltree;
 import org.bukkit.*;
@@ -105,7 +106,8 @@ public class SkilltreeGUI implements CommandExecutor, Listener {
             String id = line.substring(4).trim();
 
             // 初期位置 (0, 0) で開く
-            openTreeGUI(player, id, 0, 0);
+            NodePosition lastPos = getLastPosition(player, id);
+            openTreeGUI(player, id, lastPos.x(), lastPos.y());
         }
     }
 
@@ -145,6 +147,7 @@ public class SkilltreeGUI implements CommandExecutor, Listener {
                     case "RIGHT" -> currentX += moveAmount;
                     case "RESET" -> { currentX = 0; currentY = 0; }
                 }
+                saveLastPosition(player, treeId, currentX, currentY);
 
                 openTreeGUI(player, treeId, currentX, currentY);
                 return;
@@ -396,6 +399,8 @@ public class SkilltreeGUI implements CommandExecutor, Listener {
             return;
         }
 
+        Bukkit.getPluginManager().callEvent(new GetTreeNode(player,skillId));
+
         // 習得実行
         data.unlock(skillId);
         data.setSkillPoint(data.getSkillPoint() - 1);
@@ -632,5 +637,22 @@ public class SkilltreeGUI implements CommandExecutor, Listener {
             }
         }
         return null;
+    }
+
+    private void saveLastPosition(Player player, String treeId, int x, int y) {
+        NamespacedKey key = new NamespacedKey("deepwither", "last_pos_" + treeId);
+        player.getPersistentDataContainer().set(key, PersistentDataType.STRING, x + "," + y);
+    }
+
+    private NodePosition getLastPosition(Player player, String treeId) {
+        NamespacedKey key = new NamespacedKey("deepwither", "last_pos_" + treeId);
+        String data = player.getPersistentDataContainer().get(key, PersistentDataType.STRING);
+        if (data != null) {
+            try {
+                String[] parts = data.split(",");
+                return new NodePosition(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+            } catch (Exception ignored) {}
+        }
+        return new NodePosition(0, 0);
     }
 }

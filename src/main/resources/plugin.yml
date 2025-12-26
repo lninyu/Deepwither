@@ -3,7 +3,7 @@ version: '1.0-SNAPSHOT'
 main: com.lunar_prototype.deepwither.Deepwither
 author: RS Team(Lunar_prototype)
 api-version: '1.21'
-depend : ["Votifier"]
+depend : ["Votifier","BetterModel"]
 
 commands:
   giveitem:
@@ -55,7 +55,13 @@ commands:
   expbooster:
     description: 経験値ブースターを付与します
     usage: /expbooster
+  companion:
+    description: コンパニオン関連
+    usage: /companion
   resetstatusgui:
     description: ステータス・スキルリセット画面を指定プレイヤーに開きます
     usage: /resetstatusgui <player>
     permission: deepwither.admin
+  pvp:
+    description: PvPワールドへの往復テレポート
+    usage: /pvp

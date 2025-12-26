@@ -27,6 +27,7 @@ public class SkillLoader {
             int cooldown = config.getInt("cooldown.base", 0);
             int cooldown_min = config.getInt("cooldown.min", 0);
             String mythicSkill = config.getString("mythic_skill");
+            double castTime = config.getDouble("cast_time", 0.0); // 追加
 
             SkillDefinition def = new SkillDefinition();
             def.id = id;
@@ -37,6 +38,7 @@ public class SkillLoader {
             def.cooldown = cooldown;
             def.cooldown_min = cooldown_min;
             def.mythicSkillId = mythicSkill;
+            def.castTime = castTime; // 追加
 
             skills.put(id, def);
         }

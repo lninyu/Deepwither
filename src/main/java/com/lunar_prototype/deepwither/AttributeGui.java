@@ -120,7 +120,10 @@ class StatEffectText {
                 list.add("+ " + (level * 2) + " 最大HP");
                 list.add("+ " + (level * 1) + " 防御力");
             }
-            case MND -> list.add("+ " + (level * 1.5) + "% クリティカルダメージ");
+            case MND -> {
+                list.add("+ " + (level * 1.5) + "% クリティカルダメージ");
+                list.add("+ " + (level * 2) + " 発射体ダメージ");
+            }
             case INT -> {
                 list.add("+ " + (level * 0.1) + " 秒CD短縮");
                 list.add("+ " + (level * 5) + " 最大マナ");

@@ -41,7 +41,7 @@ public class PvPCommand implements CommandExecutor {
                 player.sendMessage("§a元の場所に戻りました。");
             } else {
                 // 記録がない場合は初期ワールドのスポーンへ（安全策）
-                player.teleport(Bukkit.getWorlds().get(0).getSpawnLocation());
+                player.teleport(Bukkit.getWorld("aether").getSpawnLocation());
                 player.sendMessage("§e元の場所の記録がないため、初期スポーンに戻りました。");
             }
         } else {

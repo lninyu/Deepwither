@@ -229,6 +229,9 @@ public class StatManager {
             total.add(readStatsFromItem(artifact));
         }
 
+        ItemStack backpack = Deepwither.getInstance().getArtifactManager().getPlayerBackpack(player);
+        total.add(readStatsFromItem(backpack));
+
         ItemStack offHand = player.getInventory().getItemInOffHand();
         if (isOffHandEquipment(offHand)) {
             total.add(readStatsFromItem(offHand));
@@ -247,11 +250,14 @@ public class StatManager {
                     case VIT -> {
                         double val = total.getFlat(StatType.MAX_HEALTH);
                         total.setFlat(StatType.MAX_HEALTH, val + points * 2.0);
-                        total.setFlat(StatType.DEFENSE, val + points * 1.0);
+                        double defval = total.getFlat(StatType.DEFENSE);
+                        total.setFlat(StatType.DEFENSE, defval + points * 1.0);
                     }
                     case MND -> {
                         double val = total.getFlat(StatType.CRIT_DAMAGE);
                         total.setFlat(StatType.CRIT_DAMAGE, val + points * 1.5);
+                        double pval = total.getFlat(StatType.PROJECTILE_DAMAGE);
+                        total.setFlat(StatType.PROJECTILE_DAMAGE, pval + points * 2);
                     }
                     case INT -> {
                         double cdVal = total.getFlat(StatType.COOLDOWN_REDUCTION);
@@ -360,8 +366,29 @@ public class StatManager {
 
         syncAttribute(player,Attribute.ENTITY_INTERACTION_RANGE,stats.getFinal(StatType.REACH));
 
-        // 移動速度（注意：初期値が0.1くらいなので +0.01でも体感変わる）
-        syncAttribute(player, Attribute.MOVEMENT_SPEED, stats.getFinal(StatType.MOVE_SPEED));
+        // 1. まず計算上の移動速度補正値を取得 (例: -0.02 や +0.05)
+        double speedBonus = stats.getFinal(StatType.MOVE_SPEED);
+
+        // 2. 移動速度がマイナス（低下）している場合のみ軽減処理を行う
+        if (speedBonus < 0) {
+            // 軽減ステータスを取得 (例: 50 なら 50% 軽減)
+            // ※ StatType.SLOW_RESISTANCE は新しく定義したEnumを使用してください
+            double resistance = stats.getFinal(StatType.REDUCES_MOVEMENT_SPEED_DECREASE);
+
+            // 抵抗値が 0 より大きい場合のみ計算
+            if (resistance > 0) {
+                // 100%を超えると逆に速度が上がってしまうため、最大100(1.0)に制限する
+                double reductionFactor = Math.min(100.0, resistance) / 100.0;
+
+                // 計算: 元のマイナス値 * (1.0 - 軽減率)
+                // 例: -0.02 * (1.0 - 0.5) = -0.01 (低下量が半分になる)
+                speedBonus = speedBonus * (1.0 - reductionFactor);
+            }
+        }
+
+        // 3. 補正後の値を適用
+        // 注意: syncAttributeの実装によりますが、基本値(0.1)に加算する仕組みならこれでOKです
+        syncAttribute(player, Attribute.MOVEMENT_SPEED, speedBonus);
     }
 
     private static void syncAttribute(Player player, Attribute attrType,double value) {

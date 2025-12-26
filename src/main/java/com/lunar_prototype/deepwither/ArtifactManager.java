@@ -1,6 +1,5 @@
 package com.lunar_prototype.deepwither;
 
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.io.BukkitObjectInputStream;
@@ -15,10 +14,11 @@ import java.util.*;
 public class ArtifactManager {
     private final File dataFile;
     private Map<UUID, List<ItemStack>> playerArtifacts = new HashMap<>();
+    // ★ 背中装備保存用のマップを追加
+    private Map<UUID, ItemStack> playerBackpacks = new HashMap<>();
 
     public ArtifactManager(Deepwither plugin) {
-        // プラグインのデータフォルダにファイルを指定
-        this.dataFile = new File(plugin.getDataFolder(), "artifacts.dat"); // .datファイルを使用
+        this.dataFile = new File(plugin.getDataFolder(), "artifacts.dat");
         loadData();
     }
 
@@ -26,32 +26,53 @@ public class ArtifactManager {
         return playerArtifacts.computeIfAbsent(player.getUniqueId(), k -> new ArrayList<>());
     }
 
-    public void savePlayerArtifacts(Player player, List<ItemStack> artifacts) {
-        playerArtifacts.put(player.getUniqueId(), artifacts);
+    // ★ 背中装備を取得するメソッド
+    public ItemStack getPlayerBackpack(Player player) {
+        return playerBackpacks.get(player.getUniqueId());
     }
 
-    // --- 永続化のロジック ---
+    public void savePlayerArtifacts(Player player, List<ItemStack> artifacts, ItemStack backpack) {
+        playerArtifacts.put(player.getUniqueId(), artifacts);
+        // ★ 背中装備も同時にキャッシュに保存
+        if (backpack != null) {
+            playerBackpacks.put(player.getUniqueId(), backpack);
+        } else {
+            playerBackpacks.remove(player.getUniqueId());
+        }
+    }
 
-    // データをファイルに保存
+    // --- 永続化のロジック (互換性維持) ---
+
     public void saveData() {
         try (BukkitObjectOutputStream oos = new BukkitObjectOutputStream(new FileOutputStream(dataFile))) {
-            oos.writeObject(playerArtifacts);
+            // アーティファクトとバックパックを一つのMapにまとめて保存
+            Map<String, Object> allData = new HashMap<>();
+            allData.put("artifacts", playerArtifacts);
+            allData.put("backpacks", playerBackpacks);
+            oos.writeObject(allData);
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
-    // ファイルからデータを読み込み
     public void loadData() {
-        if (!dataFile.exists()) {
-            return;
-        }
+        if (!dataFile.exists()) return;
 
         try (BukkitObjectInputStream ois = new BukkitObjectInputStream(new FileInputStream(dataFile))) {
             Object obj = ois.readObject();
+
             if (obj instanceof Map) {
-                // 型安全でないため警告が出ますが、この方法は一般的です
-                this.playerArtifacts = (Map<UUID, List<ItemStack>>) obj;
+                Map<?, ?> rawMap = (Map<?, ?>) obj;
+
+                // 新しい形式 (Mapの中に "artifacts" キーがある場合)
+                if (rawMap.containsKey("artifacts")) {
+                    this.playerArtifacts = (Map<UUID, List<ItemStack>>) rawMap.get("artifacts");
+                    this.playerBackpacks = (Map<UUID, ItemStack>) rawMap.get("backpacks");
+                }
+                // 旧形式 (Map自体が playerArtifacts だった場合)
+                else {
+                    this.playerArtifacts = (Map<UUID, List<ItemStack>>) rawMap;
+                }
             }
         } catch (IOException | ClassNotFoundException e) {
             e.printStackTrace();

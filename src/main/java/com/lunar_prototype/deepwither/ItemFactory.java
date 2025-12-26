@@ -13,10 +13,7 @@ import io.papermc.paper.registry.set.RegistrySet;
 import jdk.jfr.DataAmount;
 import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.component.DataComponentType;
-import org.bukkit.Bukkit;
-import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
-import org.bukkit.Registry;
+import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.block.Block;
@@ -54,6 +51,8 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
     private final Plugin plugin;
     private final Map<String, ItemStack> itemMap = new HashMap<>();
     private final NamespacedKey statKey = new NamespacedKey("rpgstats", "statmap");
+    public static final NamespacedKey GRADE_KEY = new NamespacedKey(Deepwither.getInstance(), "fabrication_grade");
+    public static final NamespacedKey RECIPE_BOOK_KEY = new NamespacedKey(Deepwither.getInstance(), "recipe_book_target_grade");
 
     public ItemFactory(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -77,12 +76,22 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
         }
     }
 
-    public ItemStack applyStatsToItem(ItemStack item, StatMap stats, @Nullable String itemType, @Nullable List<String> flavorText, ItemLoader.RandomStatTracker tracker,@Nullable String rarity,Map<StatType, Double> appliedModifiers) {
+    public ItemStack applyStatsToItem(ItemStack item, StatMap stats, @Nullable String itemType, @Nullable List<String> flavorText, ItemLoader.RandomStatTracker tracker,@Nullable String rarity,Map<StatType, Double> appliedModifiers, @Nullable FabricationGrade grade) {
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return item;
 
-        // Lore 更新（タイプとフレーバーテキスト付き）
-        meta.setLore(LoreBuilder.build(stats, false, itemType, flavorText,tracker,rarity,appliedModifiers));
+        // gradeがnullならPDCから読み込む(既存アイテム用)、なければSTANDARD
+        if (grade == null) {
+            int gid = meta.getPersistentDataContainer().getOrDefault(GRADE_KEY, PersistentDataType.INTEGER, 1);
+            grade = FabricationGrade.fromId(gid);
+        } else {
+            // 指定がある場合はPDCに保存
+            meta.getPersistentDataContainer().set(GRADE_KEY, PersistentDataType.INTEGER, grade.getId());
+        }
+
+        // LoreBuilderにgradeを渡す
+        meta.setLore(LoreBuilder.build(stats, false, itemType, flavorText, tracker, rarity, appliedModifiers, grade));
+
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
         meta.addItemFlags(ItemFlag.HIDE_ADDITIONAL_TOOLTIP);
@@ -98,6 +107,11 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
         item.setData(DataComponentTypes.TOOLTIP_DISPLAY, TooltipDisplay.tooltipDisplay().addHiddenComponents(DataComponentTypes.ATTRIBUTE_MODIFIERS).build());
 
         return item;
+    }
+
+    // 既存コード互換用のオーバーロード
+    public ItemStack applyStatsToItem(ItemStack item, StatMap stats, @Nullable String itemType, @Nullable List<String> flavorText, ItemLoader.RandomStatTracker tracker, @Nullable String rarity, Map<StatType, Double> appliedModifiers) {
+        return applyStatsToItem(item, stats, itemType, flavorText, tracker, rarity, appliedModifiers, null);
     }
 
     public StatMap readStatsFromItem(ItemStack item) {
@@ -285,32 +299,63 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        String id = args[0];
-        Player targetPlayer = player; // デフォルトはコマンド実行者
-
-        // プレイヤー名が指定されているかチェック (args[1]が存在するか)
-        if (args.length >= 2) {
-            String targetName = args[1];
-            // サーバーに接続しているプレイヤーから名前で検索
-            Player found = Bukkit.getPlayer(targetName);
-
-            if (found == null) {
-                player.sendMessage("§cプレイヤー §e" + targetName + " §cは見つかりませんでした。");
-                return true;
-            }
-            targetPlayer = found;
+        // --- 引数の解析 ---
+        if (args.length < 1) {
+            sender.sendMessage("§c使い方: /giveitem <id> [プレイヤー名] [グレード(1-5)]");
+            return true;
         }
 
+        String id = args[0];
+        Player targetPlayer = player;
+        FabricationGrade grade = FabricationGrade.STANDARD; // デフォルトはFG-1
+
+        // 1. ターゲットプレイヤーの判定
+        if (args.length >= 2) {
+            Player found = Bukkit.getPlayer(args[1]);
+            if (found != null) {
+                targetPlayer = found;
+            } else if (player == null) {
+                // コンソール実行でプレイヤーが見つからない場合
+                sender.sendMessage("§cプレイヤー §e" + args[1] + " §cは見つかりませんでした。");
+                return true;
+            }
+        }
+
+        // コンソール実行でターゲットが不明な場合のエラー
+        if (targetPlayer == null) {
+            sender.sendMessage("§cコンソールから実行する場合はプレイヤー名を指定してください。");
+            return true;
+        }
+
+        // 2. 製造等級(Fabrication Grade)の判定
+        // 引数が3つある場合 (例: /dw hammer player1 5)
+        if (args.length >= 3) {
+            try {
+                int gradeId = Integer.parseInt(args[2]);
+                grade = FabricationGrade.fromId(gradeId);
+            } catch (NumberFormatException e) {
+                sender.sendMessage("§cグレードは数値(1-5)で指定してください。");
+                return true;
+            }
+        }
+
+        // --- アイテムの生成と付与 ---
         File itemFolder = new File(plugin.getDataFolder(), "items");
-        ItemStack item = ItemLoader.loadSingleItem(id, this, itemFolder);
+        // 改修した loadSingleItem を呼び出し
+        ItemStack item = ItemLoader.loadSingleItem(id, this, itemFolder, grade);
 
         if (item == null) {
-            player.sendMessage("§cそのIDのアイテムは存在しません。");
+            sender.sendMessage("§cそのIDのアイテムは存在しません。");
             return true;
         }
 
         targetPlayer.getInventory().addItem(item);
-        targetPlayer.sendMessage("§aアイテム §e" + id + " §aを生成して付与しました。");
+
+        String msg = "§aアイテム §e" + id + " " + grade.getDisplayName() + " §aを §e" + targetPlayer.getName() + " §aに付与しました。";
+        sender.sendMessage(msg);
+        if (!sender.equals(targetPlayer)) {
+            targetPlayer.sendMessage("§aアイテム §e" + id + " " + grade.getDisplayName() + " §aを付与されました。");
+        }
         return true;
     }
 
@@ -356,6 +401,11 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
         return item;
     }
 
+    public ItemStack getCustomItemStack(String customitemid, FabricationGrade grade){
+        File itemFolder = new File(plugin.getDataFolder(), "items");
+        return ItemLoader.loadSingleItem(customitemid, this, itemFolder, grade);
+    }
+
     public ItemStack getCustomCountItemStack(String customitemid,Integer count){
         File itemFolder = new File(plugin.getDataFolder(), "items");
         ItemStack item = ItemLoader.loadSingleItem(customitemid, this, itemFolder);
@@ -372,6 +422,8 @@ class ItemLoader {
     public static final NamespacedKey SKILL_CHANCE_KEY = new NamespacedKey(Deepwither.getInstance(), "onhit_chance");
     public static final NamespacedKey SKILL_COOLDOWN_KEY = new NamespacedKey(Deepwither.getInstance(), "onhit_cooldown");
     public static final NamespacedKey SKILL_ID_KEY = new NamespacedKey(Deepwither.getInstance(), "onhit_skillid");
+    public static final NamespacedKey CHARGE_ATTACK_KEY = new NamespacedKey(Deepwither.getInstance(), "charge_attack");
+    public static final NamespacedKey IS_WAND = new NamespacedKey(Deepwither.getInstance(), "is_wand");
 
     // 品質判定用Enum
     enum QualityRank {
@@ -482,20 +534,27 @@ class ItemLoader {
         return null;
     }
 
-    public static ItemStack loadSingleItem(String id, ItemFactory factory, File itemFolder) {
+    // ★ 変更: グレードを受け取る loadSingleItem
+    public static ItemStack loadSingleItem(String id, ItemFactory factory, File itemFolder, @Nullable FabricationGrade grade) {
         for (File file : Objects.requireNonNull(itemFolder.listFiles())) {
             if (!file.getName().endsWith(".yml")) continue;
 
             YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
             if (config.contains(id)) {
-                Map<String, ItemStack> map = loadItems(config, factory);
-                return map.get(id); // 1つだけ生成して返す
+                // loadItemsにgradeを渡す
+                Map<String, ItemStack> map = loadItems(config, factory, grade);
+                return map.get(id);
             }
         }
         return null;
     }
 
-    public static Map<String, ItemStack> loadItems(YamlConfiguration config, ItemFactory factory) {
+    // 既存互換用
+    public static ItemStack loadSingleItem(String id, ItemFactory factory, File itemFolder) {
+        return loadSingleItem(id, factory, itemFolder, FabricationGrade.STANDARD);
+    }
+
+    public static Map<String, ItemStack> loadItems(YamlConfiguration config, ItemFactory factory, @Nullable FabricationGrade forceGrade) {
         Map<String, ItemStack> result = new HashMap<>();
 
         for (String key : config.getKeys(false)) {
@@ -536,6 +595,9 @@ class ItemLoader {
                 if (custom_model_data != 0){
                     meta.setCustomModelData(custom_model_data);
                 }
+
+                FabricationGrade grade = (forceGrade != null) ? forceGrade : FabricationGrade.STANDARD;
+                double multiplier = grade.getMultiplier();
 
                 // ランダムステータスの品質判定用トラッカー初期化
                 RandomStatTracker tracker = new RandomStatTracker();
@@ -629,6 +691,31 @@ class ItemLoader {
                 // 品質ランク判定
                 QualityRank rank = QualityRank.fromRatio(tracker.getRatio());
 
+                // 1. 倍率を適用したくないStatTypeを定義します（定数としてクラスの上部に定義してもOK）
+                // 例: クリティカル率や移動速度などは倍率をかけない場合
+                Set<StatType> ignoredStats = EnumSet.of(StatType.CRIT_CHANCE,StatType.ATTACK_SPEED);
+
+                if (multiplier != 1.0) {
+                    for (StatType type : stats.getAllTypes()) {
+
+                        // 2. 【追加】除外リストに含まれている場合はスキップ
+                        if (ignoredStats.contains(type)) {
+                            continue;
+                        }
+
+                        double currentFlat = stats.getFlat(type);
+                        // Flat値のみ倍率適用 (%アップなどは倍率かけないのが一般的)
+                        if (currentFlat != 0) {
+                            stats.setFlat(type, currentFlat * multiplier);
+
+                            // 適用されたモディファイアー記録用Mapの値も更新
+                            if (appliedModifiers.containsKey(type)) {
+                                appliedModifiers.put(type, appliedModifiers.get(type) * multiplier);
+                            }
+                        }
+                    }
+                }
+
                 // 名前に品質名をプレフィックス付け
                 String originalName = config.getString(key + ".name", key);
                 String newName = originalName;
@@ -641,12 +728,35 @@ class ItemLoader {
                     meta.setUnbreakable(true);
                 }
 
-                item.setItemMeta(meta);
+                String chargeType = config.getString(key + ".charge_type", null); // YMLで charge_type: hammer と設定
+                if (chargeType != null) {
+                    meta.getPersistentDataContainer().set(CHARGE_ATTACK_KEY, PersistentDataType.STRING, chargeType);
+                }
+
+                String companiontype = config.getString(key + ".companion_type", null);
+                if (companiontype != null){
+                    meta.getPersistentDataContainer().set(Deepwither.getInstance().getCompanionManager().COMPANION_ID_KEY,PersistentDataType.STRING, companiontype);
+                }
+
+                String raid_boss_id = config.getString(key + ".raid_boss_id", null);
+                if (raid_boss_id != null){
+                    NamespacedKey raid_boss_id_key = new NamespacedKey(Deepwither.getInstance(), "raid_boss_id");
+                    meta.getPersistentDataContainer().set(raid_boss_id_key,PersistentDataType.STRING, raid_boss_id);
+                }
 
                 String itemType = config.getString(key + ".type", null);
+
+                // カテゴリが「杖」または設定で is_wand: true の場合
+                if ((itemType != null && itemType.equalsIgnoreCase("杖")) || config.getBoolean(key + ".is_wand")) {
+                    if (meta != null) {
+                        meta.getPersistentDataContainer().set(IS_WAND, PersistentDataType.BOOLEAN, true);
+                    }
+                }
+
+                item.setItemMeta(meta);
                 List<String> flavorText = config.getStringList(key + ".flavor");
                 // Lore + PDC 書き込みをItemFactory側で処理
-                item = factory.applyStatsToItem(item, stats,itemType,flavorText,tracker,rarity,appliedModifiers);
+                item = factory.applyStatsToItem(item, stats,itemType,flavorText,tracker,rarity,appliedModifiers,grade);
 
                 double recoveryAmount = config.getDouble(key + ".recovery-amount", 0.0);
                 int cooldownSeconds = config.getInt(key + ".cooldown-seconds", 0);
@@ -664,6 +774,28 @@ class ItemLoader {
                     }
 
                     item.setItemMeta(meta2);
+                }
+
+                //   recipe_book_grade: 2  (Grade 2のレシピからランダム)
+                //   recipe_book_grade: 0  (全Gradeからランダム)
+                int recipeBookGrade = config.getInt(key + ".recipe_book_grade", -1);
+
+                if (recipeBookGrade >= -1) { // -1以外なら設定ありとみなす（0も許可）
+                    // recipe_book_gradeキーが存在しない場合は -1 が返るが、
+                    // 明示的に設定したい場合は getInt のデフォルト値をチェックする必要があるため、
+                    // config.contains チェックの方が安全です。
+                    if (config.contains(key + ".recipe_book_grade")) {
+                        ItemMeta metaBook = item.getItemMeta();
+                        metaBook.getPersistentDataContainer().set(ItemFactory.RECIPE_BOOK_KEY, PersistentDataType.INTEGER, recipeBookGrade);
+
+                        // 分かりやすくLoreに追加しても良い
+                        List<String> lore = metaBook.hasLore() ? metaBook.getLore() : new ArrayList<>();
+                        String gradeName = (recipeBookGrade == 0) ? "全等級" : "等級 " + recipeBookGrade;
+                        lore.add(ChatColor.GOLD + "右クリックで使用: " + ChatColor.WHITE + "未習得の" + gradeName + "レシピを獲得");
+                        metaBook.setLore(lore);
+
+                        item.setItemMeta(metaBook);
+                    }
                 }
 
                 if (config.isConfigurationSection(key + ".on_hit")) {
@@ -783,5 +915,9 @@ class ItemLoader {
             }
         }
         return result;
+    }
+
+    public static Map<String, ItemStack> loadItems(YamlConfiguration config, ItemFactory factory) {
+        return loadItems(config, factory, null);
     }
 }

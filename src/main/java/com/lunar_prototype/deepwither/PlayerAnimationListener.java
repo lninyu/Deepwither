@@ -39,6 +39,9 @@ public class PlayerAnimationListener implements Listener {
         // --- 通常剣 ---
         if (isSwordWeapon(weapon)) {
             castMythicSkill(player, "turquoise_slash");
+            player.getWorld().playSound(player.getLocation(),
+                    Sound.ENTITY_PLAYER_ATTACK_SWEEP,
+                    1f, 1f);
         }
     }
 
@@ -69,7 +72,8 @@ public class PlayerAnimationListener implements Listener {
         return hasCategory(item, "ハルバード")
                 || hasCategory(item, "斧")
                 || hasCategory(item, "マチェット")
-                || hasCategory(item, "メイス");
+                || hasCategory(item, "メイス")
+                || hasCategory(item, "ハンマー");
     }
 
     /* ---------------- 演出系 ---------------- */
@@ -90,9 +94,12 @@ public class PlayerAnimationListener implements Listener {
             );
         }
 
-        player.playSound(player.getLocation(),
+        player.getWorld().playSound(
+                player.getLocation(),
                 Sound.ENTITY_PLAYER_ATTACK_STRONG,
-                0.6f, 0.9f);
+                0.6f,
+                0.9f
+        );
     }
 
     // 重い武器の振り下ろし
@@ -121,9 +128,12 @@ public class PlayerAnimationListener implements Listener {
                 Material.STONE.createBlockData()
         );
 
-        player.playSound(player.getLocation(),
+        player.getWorld().playSound(
+                player.getLocation(), // 発生源を着弾地点に変更（好みで player.getLocation() でもOK）
                 Sound.ENTITY_PLAYER_ATTACK_STRONG,
-                1.0f, 0.6f);
+                1.0f,
+                0.6f
+        );
     }
 
     /* ---------------- MythicMobs ---------------- */

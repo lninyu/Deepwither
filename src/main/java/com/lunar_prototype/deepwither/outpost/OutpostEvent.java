@@ -2,6 +2,7 @@ package com.lunar_prototype.deepwither.outpost;
 
 import com.lunar_prototype.deepwither.Deepwither;
 import org.bukkit.Bukkit;
+import org.bukkit.Sound;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -37,8 +38,20 @@ public class OutpostEvent {
     }
 
     public void startEvent() {
-        // イベント開始通知
-        Bukkit.broadcastMessage("§e§l【Outpost発生】§f " + outpostData.getDisplayName() + " にPvEイベントが発生しました！");
+        String message = "§e§l【Outpost発生】§f " + outpostData.getDisplayName() + " にPvEイベントが発生しました！";
+
+        // 1. 全プレイヤーへチャット送信（既存）
+        Bukkit.broadcastMessage(message);
+
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            // 2. 画面中央にタイトルを表示 (フェードイン, 滞在, フェードアウトをチック単位で指定)
+            player.sendTitle("§6§lOutpost Emerged!", "§f" + outpostData.getDisplayName(), 10, 70, 20);
+
+            // 3. 注意を引く音を鳴らす (エンダードラゴンの咆哮や落雷の音など)
+            player.playSound(player.getLocation(), Sound.ENTITY_ENDER_DRAGON_GROWL, 1.0f, 0.8f);
+            player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.5f, 1.0f);
+        }
+
         startInitialWaitTimer();
     }
 

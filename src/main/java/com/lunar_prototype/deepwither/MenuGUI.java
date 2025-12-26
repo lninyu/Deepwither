@@ -1,5 +1,6 @@
 package com.lunar_prototype.deepwither;
 
+import com.lunar_prototype.deepwither.companion.CompanionGui;
 import com.lunar_prototype.deepwither.data.DailyTaskData;
 import com.lunar_prototype.deepwither.profession.PlayerProfessionData;
 import com.lunar_prototype.deepwither.profession.ProfessionManager;
@@ -66,6 +67,12 @@ public class MenuGUI implements Listener {
         inv.setItem(15, createGuildQuestIcon(player));   // ギルドクエスト
         inv.setItem(16, createDailyTaskIcon(player));    // デイリータスク
 
+        // コンパニオン
+        inv.setItem(22, createNavButton(Material.TOTEM_OF_UNDYING, "§6§lコンパニオン",
+                "§7共に冒険する仲間を管理します。",
+                "§7スキルの設定や装備の変更が可能です。",
+                "", "§e▶ クリックして開く"));
+
         // --- 3. ナビゲーションボタン ---
         // Skill Tree
         inv.setItem(38, createNavButton(Material.ENCHANTED_BOOK, "§a§lスキルツリー",
@@ -85,6 +92,9 @@ public class MenuGUI implements Listener {
 
         // 閉じるボタン
         inv.setItem(49, createNavButton(Material.BARRIER, "§c閉じる", "§7メニューを閉じます。"));
+
+        inv.setItem(50, createNavButton(Material.COMPARATOR, "§7§lシステム設定",
+                "§7チャットログ表示などを", "§7カスタマイズします。", "", "§e▶ クリックして設定"));
 
         player.openInventory(inv);
     }
@@ -281,13 +291,16 @@ public class MenuGUI implements Listener {
         player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1f, 1f);
 
         switch (slot) {
+            case 22:
+                player.closeInventory();
+                new CompanionGui(Deepwither.getInstance().getCompanionManager()).openGui(player);
+                break;
             case 38: // Skill Tree
                 // 既存のSkilltreeGUIを開くコマンドを実行させる、もしくは直接Manager経由で開く
                 // SkilltreeGUIのコマンドロジックを直接呼ぶのは複雑なため、コマンドを実行させます
                 player.closeInventory();
                 player.performCommand("skilltree");
                 break;
-
             case 39: // Attributes
                 // AttributeCommandは Event Call -> Static Open という手順
                 player.closeInventory();
@@ -310,6 +323,11 @@ public class MenuGUI implements Listener {
             case 49: // Close
                 player.closeInventory();
                 break;
+            case 50:
+                player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1f, 1f);
+                player.closeInventory();
+                // DeepwitherインスタンスからSettingsGUIを開く
+                Deepwither.getInstance().getSettingsGUI().open(player);
         }
     }
 }

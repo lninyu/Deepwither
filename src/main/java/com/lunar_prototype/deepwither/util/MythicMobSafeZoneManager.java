@@ -59,13 +59,13 @@ public class MythicMobSafeZoneManager {
 
         // ワールドをまたいで処理を行う
         for (World world : plugin.getServer().getWorlds()) {
+            // パフォーマンスのため、LivingEntityのループを推奨しますが、getEntities()でも動作はします
             for (Entity entity : world.getEntities()) {
                 if (!(entity instanceof LivingEntity)) continue;
 
                 // 1. MythicMobの判定
                 ActiveMob mob = MythicBukkit.inst().getMobManager().getMythicMobInstance(entity);
                 if (mob == null) {
-                    // MythicMobではない場合、追跡から削除 (念のため)
                     safeZoneEntryTime.remove(entity.getUniqueId());
                     continue;
                 }
@@ -77,7 +77,16 @@ public class MythicMobSafeZoneManager {
                 boolean isInSafeZone = isSafeZone(loc);
 
                 if (isInSafeZone) {
-                    // セーフゾーンにいる場合
+                    // ★追加機能: 無敵モブの即時削除チェック★
+                    // MythicMobsの "Invincible: true" やバニラの無敵タグがついている場合 true になります
+                    if (entity.isInvulnerable()) {
+                        mob.remove();
+                        safeZoneEntryTime.remove(mobId);
+                        plugin.getLogger().info("Removed Invulnerable MythicMob '" + mob.getName() + "' in safezone immediately.");
+                        continue; // 削除したので次のエンティティへ
+                    }
+
+                    // セーフゾーンにいる場合、時間を記録
                     safeZoneEntryTime.putIfAbsent(mobId, currentTick);
 
                     long entryTick = safeZoneEntryTime.get(mobId);

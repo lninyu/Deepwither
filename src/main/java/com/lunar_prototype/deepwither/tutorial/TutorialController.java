@@ -1,11 +1,14 @@
 package com.lunar_prototype.deepwither.tutorial;
 
 import com.lunar_prototype.deepwither.Deepwither;
-import com.lunar_prototype.deepwither.api.event.OpenAttributes;
-import com.lunar_prototype.deepwither.api.event.OpenSkillassignment;
-import com.lunar_prototype.deepwither.api.event.OpenSkilltree;
-import com.lunar_prototype.deepwither.api.event.SkillCastEvent;
+import com.lunar_prototype.deepwither.api.event.*;
 import com.lunar_prototype.eqf.EQFPlugin;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.KeybindComponent;
+import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.title.Title;
+import net.minecraft.network.chat.contents.KeybindContents;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Sound;
@@ -27,6 +30,7 @@ public class TutorialController implements Listener {
     private final JavaPlugin plugin;
     // プレイヤーごとの進行状況
     private final Map<UUID, TutorialStage> stageMap = new HashMap<>();
+    private final Set<UUID> loadingPlayers = new HashSet<>();
 
     public TutorialController(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -43,8 +47,9 @@ public class TutorialController implements Listener {
         INIT,                   // 開始待機
         WAIT_OPEN_STATUS,       // ステータス画面を開く待ち (/status)
         WAIT_ALLOCATE_POINT,    // ポイント割り振り待ち
-        WAIT_OPEN_SKILLTREE,    // スキルツリーを開く待ち (/skills)
-        WAIT_UNLOCK_SKILL,      // スキル習得待ち
+        WAIT_OPEN_SKILLTREE,
+        WAIT_UNLOCK_STARTER,    // 追加: スターターノード解放待ち
+        WAIT_UNLOCK_SKILL_NODE, // 追加: 具体的なスキル習得待ち
         WAIT_ASSIGN_SKILL,      // スキルセット画面を開く待ち (/setskill)
         WAIT_SKILL_CAST,        // スキル発動待ち
         CORE_DONE,              // 基本操作完了
@@ -68,10 +73,13 @@ public class TutorialController implements Listener {
 
                     // ステージに応じたタイトルを取得して表示
                     String title = getTitle(stage);
-                    String subTitle = getSubtitle(stage);
+                    String subTitle = getSubtitle(p,stage);
+
+                    Component subtitlecom = MiniMessage.miniMessage().deserialize(subTitle);
+                    Component titlecom = MiniMessage.miniMessage().deserialize(title);
 
                     // 0.1秒フェードイン, 2秒維持, 1秒フェードアウト (ループさせるので維持時間を長めに)
-                    p.sendTitle(title, subTitle, 0, 40, 10);
+                    p.showTitle(Title.title(titlecom, subtitlecom,0,40,10));
                 }
             }
         }.runTaskTimer(plugin, 0L, 20L); // 1秒ごとに更新
@@ -83,10 +91,19 @@ public class TutorialController implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerMove(PlayerMoveEvent e) {
         Player p = e.getPlayer();
-        TutorialStage stage = stageMap.get(p.getUniqueId());
+        UUID uuid = p.getUniqueId();
+        TutorialStage stage = stageMap.get(uuid);
 
-        // チュートリアル管理外、または完了済みなら制限しない
-        if (stage == null || stage == TutorialStage.COMPLETE || stage == TutorialStage.EQF_HANDOVER) {
+        // 1. ロード中（文字演出中など）かどうか
+        boolean isLoading = loadingPlayers.contains(uuid);
+
+        // 2. チュートリアル進行中（かつ移動制限すべきステージ）かどうか
+        boolean isRestrictedStage = (stage != null
+                && stage != TutorialStage.COMPLETE
+                && stage != TutorialStage.EQF_HANDOVER);
+
+        // 「演出中でもなく」かつ「制限ステージでもない」なら何もしない
+        if (!isLoading && !isRestrictedStage) {
             return;
         }
 
@@ -96,8 +113,6 @@ public class TutorialController implements Listener {
                 e.getFrom().getZ() != e.getTo().getZ()) {
 
             e.setCancelled(true);
-            // 数秒に1回警告を出すなどの調整も可
-            // p.sendMessage("§c[チュートリアル] §f指示に従ってください。移動は制限されています。");
         }
     }
 
@@ -120,19 +135,119 @@ public class TutorialController implements Listener {
     }
 
     private void startTutorial(Player p) {
-        stageMap.put(p.getUniqueId(), TutorialStage.WAIT_OPEN_STATUS);
-        // ダンジョン作成
+        UUID uuid = p.getUniqueId();
+
+        // 1. 二重起動対策
+        // すでにロード中、またはチュートリアル進行中なら弾く
+        if (loadingPlayers.contains(uuid) || stageMap.containsKey(uuid)) {
+            return;
+        }
+        loadingPlayers.add(uuid);
+
+        // ダンジョン作成コマンド
         Bukkit.dispatchCommand(
                 Bukkit.getConsoleSender(),
                 "dungeon create tutorial " + p.getName()
         );
 
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            giveTutorialItems(p);
-            send(p, "……意識が覚醒する");
-            send(p, "ここは通常の世界ではない");
-        }, 40L);
-        sendInstruction(p, TutorialStage.WAIT_OPEN_STATUS);
+        // 2. ロード時間（4秒 = 80tick）待機してから演出開始
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                // プレイヤーがログアウトしていたら中止
+                if (!p.isOnline()) {
+                    loadingPlayers.remove(uuid);
+                    return;
+                }
+                // 演出開始
+                playOpeningSequence(p);
+            }
+        }.runTaskLater(plugin, 120L);
+    }
+
+    // 3. アクションバーでのタイプライター演出（分割表示版）
+    private void playOpeningSequence(Player p) {
+        // 文章をリストに分割して定義
+        List<String> lines = List.of(
+                "……目を覚ましたはずなのに、目覚めた感覚がない。",
+                "空気はある、重力もある。だが、何かが決定的に違う",
+                "――ここは、戻るための場所ではない"
+        );
+
+        // 最初の行（インデックス0）から開始
+        playDialogueLine(p, lines, 0);
+    }
+
+    // 1行ずつ処理するメソッド
+    private void playDialogueLine(Player p, List<String> lines, int lineIndex) {
+        // プレイヤーがオフラインなら中断
+        if (!p.isOnline()) {
+            loadingPlayers.remove(p.getUniqueId());
+            return;
+        }
+
+        // 全ての行を表示し終わったら終了処理へ
+        if (lineIndex >= lines.size()) {
+            finishOpening(p);
+            return;
+        }
+
+        String text = lines.get(lineIndex);
+
+        new BukkitRunnable() {
+            int charIndex = 0;
+            final int length = text.length();
+
+            @Override
+            public void run() {
+                // 途中で落ちた場合
+                if (!p.isOnline()) {
+                    loadingPlayers.remove(p.getUniqueId());
+                    this.cancel();
+                    return;
+                }
+
+                charIndex++;
+                String currentText = text.substring(0, charIndex);
+
+                // 表示
+                p.sendActionBar(MiniMessage.miniMessage().deserialize("<white>" + currentText));
+
+                // この行の表示が終わったら
+                if (charIndex >= length) {
+                    this.cancel();
+
+                    // 読み終わる余韻（待機時間）
+                    // 文章量に応じて変えてもいいですが、固定で40tick(2秒)待機させて次の行へ
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            // 次の行 (lineIndex + 1) を呼び出す
+                            playDialogueLine(p, lines, lineIndex + 1);
+                        }
+                    }.runTaskLater(plugin, 40L);
+                }
+            }
+        }.runTaskTimer(plugin, 0L, 5L); // 文字送り速度
+    }
+
+    // 4. 演出終了後の処理（アイテム付与・ステージ遷移）
+    private void finishOpening(Player p) {
+        if (!p.isOnline()) {
+            loadingPlayers.remove(p.getUniqueId());
+            return;
+        }
+
+        giveTutorialItems(p); // アイテム付与
+
+        // ステージをセット
+        stageMap.put(p.getUniqueId(), TutorialStage.WAIT_OPEN_STATUS);
+
+        // 最初の指示を出す
+        sendInstruction(p, TutorialStage.WAIT_OPEN_STATUS); // これで「/attを入力」が出る
+
+        // ロード中フラグ解除
+        loadingPlayers.remove(p.getUniqueId());
     }
 
     /* -----------------------------
@@ -190,19 +305,30 @@ public class TutorialController implements Listener {
     public void onOpenSkillTree(OpenSkilltree e) {
         Player p = e.getPlayer();
         if (stage(p) == TutorialStage.WAIT_OPEN_SKILLTREE) {
-            advanceStage(p, TutorialStage.WAIT_UNLOCK_SKILL);
+            // スキルツリーを開いたら「スターター解放」ステージへ
+            advanceStage(p, TutorialStage.WAIT_UNLOCK_STARTER);
         }
     }
 
     // 4. スキル習得 (ツリー画面を閉じた際に判定、またはSkillUnlockEventがあればそれを使う)
     // ここでは「ツリー画面を閉じた」タイミングで次へ
     @EventHandler
-    public void onCloseSkillTree(InventoryCloseEvent e) {
-        if (!(e.getPlayer() instanceof Player p)) return;
+    public void onGetTreeNode(GetTreeNode e) {
+        Player p = e.getPlayer();
+        String skillId = e.getSkillid().toLowerCase();
+        TutorialStage currentStage = stage(p);
 
-        // GUIのタイトル等で判定する必要があるかも
-        if (stage(p) == TutorialStage.WAIT_UNLOCK_SKILL) {
-            advanceStage(p, TutorialStage.WAIT_ASSIGN_SKILL);
+        if (currentStage == TutorialStage.WAIT_UNLOCK_STARTER) {
+            // スターターノード (IDに"start"を含む) を取得したかチェック
+            if (skillId.contains("start")) {
+                advanceStage(p, TutorialStage.WAIT_UNLOCK_SKILL_NODE);
+            }
+        } else if (currentStage == TutorialStage.WAIT_UNLOCK_SKILL_NODE) {
+            // スターター以外のスキルノードを取得したかチェック
+            if (!skillId.contains("start")) {
+                // スキルを習得したので、次はセット画面へ
+                advanceStage(p, TutorialStage.WAIT_ASSIGN_SKILL);
+            }
         }
     }
 
@@ -267,36 +393,50 @@ public class TutorialController implements Listener {
 
     private void sendInstruction(Player p, TutorialStage stage) {
         // チャット欄へのメッセージ送信
-        String message = getChatMessage(stage);
+        Component message = MiniMessage.miniMessage().deserialize(getChatMessage(stage));
+
         if (message != null) {
-            p.sendMessage("§b[Tips] §f" + message);
+
+            //p.sendMessage("§b[Tips] §f" + message);
+            Component componentmessage = MiniMessage.miniMessage().deserialize("<aqua>[Tips] <white> ");
+            componentmessage.append(message);
+
+            p.sendMessage(componentmessage);
         }
     }
 
     // ステージごとのタイトル (常時表示用)
     private String getTitle(TutorialStage stage) {
         return switch (stage) {
-            case WAIT_OPEN_STATUS -> "§bステータス画面を開く";
-            case WAIT_ALLOCATE_POINT -> "§eポイントを割り振る";
-            case WAIT_OPEN_SKILLTREE -> "§bスキルツリーを開く";
-            case WAIT_UNLOCK_SKILL -> "§eスキルを習得する";
-            case WAIT_ASSIGN_SKILL -> "§bスキルセット画面を開く";
-            case WAIT_SKILL_CAST -> "§cスキルを発動する";
-            case CORE_DONE, EQF_HANDOVER -> "§aチュートリアル完了！";
+            case WAIT_OPEN_STATUS -> "<aqua>ステータス画面を開く";
+            case WAIT_ALLOCATE_POINT -> "<yellow>ポイントを割り振る";
+            case WAIT_OPEN_SKILLTREE -> "<aqua>スキルツリーを開く";
+            case WAIT_UNLOCK_STARTER -> "<yellow>中心のノードを解放する";
+            case WAIT_UNLOCK_SKILL_NODE -> "<yellow>スキルを習得する";
+            case WAIT_ASSIGN_SKILL -> "<aqua>スキルセット画面を開く";
+            case WAIT_SKILL_CAST -> "<red>スキルを発動する";
+            case CORE_DONE, EQF_HANDOVER -> "<green>チュートリアル完了！";
             default -> "";
         };
     }
 
     // ステージごとのサブタイトル (コマンド指示など)
-    private String getSubtitle(TutorialStage stage) {
+    private String getSubtitle(Player p, TutorialStage stage) {
         return switch (stage) {
-            case WAIT_OPEN_STATUS -> "§fコマンド §a/att §fを入力";
-            case WAIT_ALLOCATE_POINT -> "§f任意のステータスをクリックして強化";
-            case WAIT_OPEN_SKILLTREE -> "§fコマンド §a/st §fを入力";
-            case WAIT_UNLOCK_SKILL -> "§f習得可能なスキルをクリック";
-            case WAIT_ASSIGN_SKILL -> "§fコマンド §a/skills §fを入力";
-            case WAIT_SKILL_CAST -> "§fオフハンド切り替えキー §e(Fキー) §fを押す";
-            case CORE_DONE, EQF_HANDOVER -> "§f準備中...";
+            // §f -> <white>, §a -> <green> に置き換え
+            case WAIT_OPEN_STATUS -> "<white>コマンド <green>/att <white>を入力";
+            case WAIT_ALLOCATE_POINT -> "<white>任意のステータスをクリックして強化";
+            case WAIT_OPEN_SKILLTREE -> "<white>コマンド <green>/st <white>を入力";
+            case WAIT_UNLOCK_STARTER -> "<white>ツリーの中心にある <gold>Starter Node <white>をクリック";
+            case WAIT_UNLOCK_SKILL_NODE -> "<white>繋がった先のスキルをクリックして習得";
+            case WAIT_ASSIGN_SKILL -> "<white>コマンド <green>/skills <white>を入力";
+
+            // ここが変更箇所です
+            // §e -> <yellow>
+            // Component.keybind -> <key:key.swapOffhand>
+            case WAIT_SKILL_CAST -> "<white>オフハンド切り替えキー <yellow><key:key.swapOffhand><white>を押す";
+
+            case CORE_DONE, EQF_HANDOVER -> "<white>準備中...";
             default -> "";
         };
     }
@@ -304,12 +444,13 @@ public class TutorialController implements Listener {
     // ステージごとのチャットメッセージ (ステージ移行時に1回だけ表示)
     private String getChatMessage(TutorialStage stage) {
         return switch (stage) {
-            case WAIT_OPEN_STATUS -> "まずは自身の能力を確認しましょう。チャット欄を開き、§a/att §fと入力してください。";
+            case WAIT_OPEN_STATUS -> "まずは自身の能力を確認しましょう。チャット欄を開き、<green>/att <white>と入力してください。";
             case WAIT_ALLOCATE_POINT -> "ステータス画面が開かれました。ポイントを使って能力を強化し、ESCキーで閉じてください。";
-            case WAIT_OPEN_SKILLTREE -> "次はスキルの習得です。§a/st §fと入力してスキルツリーを開いてください。";
-            case WAIT_UNLOCK_SKILL -> "スキルツリーから任意のスキルを習得（クリック）してください。";
-            case WAIT_ASSIGN_SKILL -> "習得したスキルを装備します。§a/skills §fと入力してください。";
-            case WAIT_SKILL_CAST -> "スキル装備完了です！ 武器を持ち、§eFキー（オフハンド切り替え）§fを押してスキルを発動してみましょう。";
+            case WAIT_OPEN_SKILLTREE -> "次はスキルの習得です。<green>/st<white>と入力してスキルツリーを開いてください。";
+            case WAIT_UNLOCK_STARTER -> "まずはツリーの中心にある「スターターノード」を解放しましょう。";
+            case WAIT_UNLOCK_SKILL_NODE -> "道が開通しました！次に、隣接するスキルノードをクリックして習得してください。";
+            case WAIT_ASSIGN_SKILL -> "習得したスキルを装備します。<green>/skills <white>と入力してください。";
+            case WAIT_SKILL_CAST -> "スキル装備完了です！ 武器を持ち、<yellow><key:key.swapOffhand>キー（オフハンド切り替え）<white>を押してスキルを発動してみましょう。";
             case CORE_DONE -> "お見事です！これで基本操作の確認は終了です。";
             default -> null;
         };

@@ -577,7 +577,9 @@ public class MobSpawnManager {
         ApplicableRegionSet set = query.getApplicableRegions(BukkitAdapter.adapt(loc));
 
         for (ProtectedRegion region : set) {
-            if (region.getId().toLowerCase().contains("safezone")) {
+            String regionId = region.getId().toLowerCase();
+            // safezone または kbf が含まれているかチェック
+            if (regionId.contains("safezone") || regionId.contains("kbf")) {
                 return true;
             }
         }

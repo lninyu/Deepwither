@@ -33,75 +33,75 @@ public class ArtifactGUIListener implements Listener {
 
         Player player = (Player) event.getWhoClicked();
         Inventory clickedInventory = event.getClickedInventory();
-        if (clickedInventory == null) {
-            return;
-        }
+        if (clickedInventory == null) return;
 
         int slot = event.getSlot();
+        ItemStack cursorItem = event.getCursor();
+        ItemStack currentItem = event.getCurrentItem();
 
-        // **GUI内のクリックを処理**
+        // 1. 上（GUI）のインベントリをクリックした場合の処理
         if (clickedInventory.equals(event.getView().getTopInventory())) {
 
-            // **ステップ1: クリックされたスロットがアーティファクトスロットかどうかをチェック**
-            boolean isArtifactSlot = isArtifactSlot(slot);
+            boolean isArtifact = isArtifactSlot(slot);
+            boolean isBackpack = (slot == ArtifactGUI.BACKPACK_SLOT);
 
-            if (isArtifactSlot) {
-                // **A. アーティファクトスロット内での操作**
+            // A. 許可されたスロット（アーティファクト or 背中）の場合
+            if (isArtifact || isBackpack) {
 
-                // **A1. アイテムを持ち出そうとした場合 (現在のアイテム != AIR かつ カーソル = AIR)**
-                if (event.getCursor().getType() == Material.AIR && event.getCurrentItem() != null && event.getCurrentItem().getType() != Material.AIR) {
-                    if (!isArtifact(event.getCurrentItem())) {
-                        // 持ち出そうとしたのがプレースホルダーなどの非アーティファクトアイテムの場合、キャンセル
+                // --- 持ち出しの判定 ---
+                if (cursorItem.getType() == Material.AIR && currentItem != null && currentItem.getType() != Material.AIR) {
+                    // プレースホルダー（ガラス板）なら持ち出しをキャンセル
+                    if (currentItem.getType() == Material.CYAN_STAINED_GLASS_PANE ||
+                            currentItem.getType() == Material.PURPLE_STAINED_GLASS_PANE) {
                         event.setCancelled(true);
-                        player.sendMessage("§cこのスロットにあるプレースホルダーは持ち出せません。");
+                        player.sendMessage("§cこのプレースホルダーは持ち出せません。");
                         return;
                     }
+                    // ここで return しないことで、本物のアイテムなら持ち出し（キャンセルなし）が成立します
+                    return;
                 }
 
-                // **A2. カーソルにアイテムがあり、アーティファクトスロットに置こうとする場合**
-                if (event.getCursor().getType() != Material.AIR) {
-                    if (!isArtifact(event.getCursor())) {
+                // --- 設置・入れ替えの判定 ---
+                if (cursorItem.getType() != Material.AIR) {
+                    if (isArtifact && !isArtifact(cursorItem)) {
                         event.setCancelled(true);
-                        player.sendMessage("§cこのスロットにはアーティファクトのみ装備できます。");
+                        player.sendMessage("§cここにはアーティファクトのみ装備できます。");
+                    } else if (isBackpack && !isBackpackItem(cursorItem)) {
+                        event.setCancelled(true);
+                        player.sendMessage("§cここには背中装備のみ装備できます。");
+                    }
+
+                    if (currentItem != null && (currentItem.getType() == Material.CYAN_STAINED_GLASS_PANE ||
+                            currentItem.getType() == Material.PURPLE_STAINED_GLASS_PANE)) {
+
+                        // 通常の交換イベントをキャンセル（ガラス板が手に来るのを防ぐ）
+                        event.setCancelled(true);
+
+                        // 手動で装備処理を行う
+                        // スロットにカーソルのアイテムをセット
+                        clickedInventory.setItem(slot, cursorItem);
+                        // カーソルのアイテムを消去（手に持っているアイテムをなくす）
+                        player.setItemOnCursor(new ItemStack(Material.AIR));
+
+                        // プレイヤーのインベントリ更新（表示ズレ防止のため念のため）
+                        player.updateInventory();
                     }
                 }
 
             } else {
-                // **B. アーティファクトスロット以外のスロット（装飾部分）での操作**
-                // 装飾用アイテム（GRAY_STAINED_GLASS_PANEなど）は全て動かせないようにする
+                // B. それ以外のスロット（装飾用の枠など）
                 event.setCancelled(true);
-                // 念のためメッセージを追加（デバッグ用としても機能）
-                player.sendMessage("§c装飾スロットのアイテムは動かせません。");
             }
         }
 
-        // **プレイヤーインベントリ内のクリックを処理**
+        // 2. 下（プレイヤーインベントリ）をクリックした場合の処理
+        // シフトクリックで変な場所にアイテムが入るのを防ぐ
         if (clickedInventory.equals(player.getInventory())) {
-            // **GUIにアイテムを入れようとした場合**
-            if (event.getCursor().getType() != Material.AIR) {
-                // アーティファクトでなければキャンセル
-                if (!isArtifact(event.getCursor())) {
-                    if (isArtifactSlot(event.getSlot())) { // 念のためチェック
-                        event.setCancelled(true);
-                        player.sendMessage("§cこのスロットにはアーティファクトのみ装備できます。");
-                    }
-                }
+            if (event.isShiftClick()) {
+                // シフトクリックは処理が複雑になるため、このGUIでは一旦無効化するのが安定します
+                event.setCancelled(true);
+                player.sendMessage("§cこのGUIではシフトクリックは無効です。ドラッグして配置してください。");
             }
-        }
-
-        boolean isArtifactSlot = isArtifactSlot(slot);
-        if (isArtifactSlot && event.getCursor().getType() != Material.AIR) {
-            Bukkit.getScheduler().runTaskLater(Deepwither.getInstance(), () -> {
-                // アイテムが正常にスロットに置かれたことを確認
-                ItemStack itemInSlot = player.getOpenInventory().getItem(slot);
-                if (itemInSlot != null && isArtifact(itemInSlot)) {
-                    // カーソルにアイテムが残っている場合、それを消去
-                    // （これは入れ替え操作で発生）
-                    if (player.getItemOnCursor() != null) {
-                        player.setItemOnCursor(new ItemStack(Material.AIR));
-                    }
-                }
-            }, 1L);
         }
     }
 
@@ -109,21 +109,41 @@ public class ArtifactGUIListener implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        if (event.getView().getTitle().contains("アーティファクト")) { // タイトルチェックを柔軟に
+        if (event.getView().getTitle().contains("アーティファクト")) {
             Player player = (Player) event.getPlayer();
             Inventory guiInventory = event.getInventory();
+            Deepwither plugin = Deepwither.getInstance();
 
+            // 1. アーティファクトの取得
             List<ItemStack> artifacts = new ArrayList<>();
             for (int slot : ArtifactGUI.ARTIFACT_SLOTS) {
                 ItemStack item = guiInventory.getItem(slot);
-
-                // ★ 修正箇所: プレースホルダーは保存しない (CYAN_STAINED_GLASS_PANEの場合)
                 if (item != null && item.getType() != Material.CYAN_STAINED_GLASS_PANE) {
                     artifacts.add(item);
                 }
             }
 
-            Deepwither.getInstance().getArtifactManager().savePlayerArtifacts(player, artifacts);
+            // 2. 背中装備の取得
+            ItemStack backpackItem = guiInventory.getItem(ArtifactGUI.BACKPACK_SLOT);
+            ItemStack toSaveBackpack = null;
+
+            if (backpackItem != null && backpackItem.getType() != Material.PURPLE_STAINED_GLASS_PANE) {
+                toSaveBackpack = backpackItem;
+
+                // BackpackManagerと連携して表示を更新
+                if (backpackItem.hasItemMeta() && backpackItem.getItemMeta().hasCustomModelData()) {
+                    int model = backpackItem.getItemMeta().getCustomModelData();
+                    plugin.getBackpackManager().equipBackpack(player, model);
+                }
+            } else {
+                // 空なら背中装備を解除
+                plugin.getBackpackManager().unequipBackpack(player);
+            }
+
+            // 3. まとめて保存
+            plugin.getArtifactManager().savePlayerArtifacts(player, artifacts, toSaveBackpack);
+
+            // 統計情報の更新
             statManager.updatePlayerStats(player);
         }
     }
@@ -160,6 +180,14 @@ public class ArtifactGUIListener implements Listener {
             }
         }
         return false;
+    }
+
+    /**
+     * 背中装備アイテムかどうかを判定する (例: Loreに "背中装備" とあるか)
+     */
+    private boolean isBackpackItem(ItemStack item) {
+        if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) return false;
+        return item.getItemMeta().getLore().stream().anyMatch(line -> line.contains("背中装備"));
     }
 
     /**
