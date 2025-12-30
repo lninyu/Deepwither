@@ -177,8 +177,8 @@ public class DailyTaskManager {
     public void completeTask(Player player, String traderId) {
         DailyTaskData data = getTaskData(player);
 
-        int goldReward = 500 + plugin.getRandom().nextInt(500);
-        int creditReward = 1000 + plugin.getRandom().nextInt(3000);
+        int goldReward = 1000 + plugin.getRandom().nextInt(3000);
+        int creditReward = 100 + plugin.getRandom().nextInt(300);
 
         Deepwither.getEconomy().depositPlayer(player, goldReward);
         plugin.getCreditManager().addCredit(player.getUniqueId(), traderId, creditReward);
