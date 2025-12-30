@@ -25,6 +25,7 @@ import com.lunar_prototype.deepwither.outpost.OutpostManager;
 import com.lunar_prototype.deepwither.outpost.OutpostRegionListener;
 import com.lunar_prototype.deepwither.party.PartyManager;
 import com.lunar_prototype.deepwither.profession.ProfessionManager;
+import com.lunar_prototype.deepwither.profiler.CombatAnalyzer;
 import com.lunar_prototype.deepwither.quest.*;
 import com.lunar_prototype.deepwither.raidboss.RaidBossListener;
 import com.lunar_prototype.deepwither.raidboss.RaidBossManager;
@@ -281,6 +282,7 @@ public final class  Deepwither extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new CompanionGuiListener(companionManager),this);
         getServer().getPluginManager().registerEvents(new LayerSignListener(),this);
         getServer().getPluginManager().registerEvents(new BossKillListener(),this);
+        this.getServer().getPluginManager().registerEvents(new CombatAnalyzer(this.companionManager, this), this);
 
         this.getCommand("artifact").setExecutor(new ArtifactGUICommand(artifactGUI));
         getCommand("trader").setExecutor(new TraderCommand(traderManager));
