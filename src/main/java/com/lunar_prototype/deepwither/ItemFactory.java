@@ -53,6 +53,10 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
     private final NamespacedKey statKey = new NamespacedKey("rpgstats", "statmap");
     public static final NamespacedKey GRADE_KEY = new NamespacedKey(Deepwither.getInstance(), "fabrication_grade");
     public static final NamespacedKey RECIPE_BOOK_KEY = new NamespacedKey(Deepwither.getInstance(), "recipe_book_target_grade");
+    public static final NamespacedKey RARITY_KEY = new NamespacedKey(Deepwither.getInstance(), "item_rarity");
+    public static final NamespacedKey ITEM_TYPE_KEY = new NamespacedKey(Deepwither.getInstance(), "item_type_name");
+    public static final NamespacedKey FLAVOR_TEXT_KEY = new NamespacedKey(Deepwither.getInstance(), "item_flavor_text"); // 文字列結合で保存
+    private static final String KEY_PREFIX = "rpgstats";
 
     public ItemFactory(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -76,42 +80,186 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
         }
     }
 
-    public ItemStack applyStatsToItem(ItemStack item, StatMap stats, @Nullable String itemType, @Nullable List<String> flavorText, ItemLoader.RandomStatTracker tracker,@Nullable String rarity,Map<StatType, Double> appliedModifiers, @Nullable FabricationGrade grade) {
+    /**
+     * アイテムにステータスを適用し、再構築可能な状態でPDCに保存します。
+     * このメソッドは、ItemLoaderから「ベース値（倍率前）」と「モディファイアー」を受け取り、
+     * 最終的なステータス (Base * Grade + Modifiers) を計算して適用します。
+     *
+     * @param item            対象アイテム
+     * @param baseStats       ベースステータス (Configからランダムロールされた直後の値、等級倍率適用前)
+     * @param modifiers       レアリティ等による追加モディファイアー
+     * @param itemType        アイテム種別名 (例: "長剣")
+     * @param flavorText      フレーバーテキスト
+     * @param tracker         品質トラッカー (Lore表示用)
+     * @param rarity          レアリティ文字列
+     * @param grade           製造等級 (指定なしならSTANDARD)
+     * @return 更新されたItemStack
+     */
+    public ItemStack applyStatsToItem(ItemStack item, StatMap baseStats, Map<StatType, Double> modifiers,
+                                      @Nullable String itemType, @Nullable List<String> flavorText,
+                                      ItemLoader.RandomStatTracker tracker, @Nullable String rarity,
+                                      @Nullable FabricationGrade grade) {
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return item;
 
-        // gradeがnullならPDCから読み込む(既存アイテム用)、なければSTANDARD
+        // 1. グレードの確定と保存
         if (grade == null) {
             int gid = meta.getPersistentDataContainer().getOrDefault(GRADE_KEY, PersistentDataType.INTEGER, 1);
             grade = FabricationGrade.fromId(gid);
         } else {
-            // 指定がある場合はPDCに保存
             meta.getPersistentDataContainer().set(GRADE_KEY, PersistentDataType.INTEGER, grade.getId());
         }
 
-        // LoreBuilderにgradeを渡す
-        meta.setLore(LoreBuilder.build(stats, false, itemType, flavorText, tracker, rarity, appliedModifiers, grade));
+        // 2. 最終ステータスの計算: Final = (Base * GradeMultiplier) + Modifiers
+        // ただし、特定のStat(Critical Chanceなど)はGrade倍率をかけない場合がある
+        StatMap finalStats = new StatMap();
+        double multiplier = grade.getMultiplier();
+        Set<StatType> ignoredMultipliers = EnumSet.of(StatType.CRIT_CHANCE, StatType.ATTACK_SPEED, StatType.MOVE_SPEED);
+
+        // Base Statの計算と保存
+        for (StatType type : baseStats.getAllTypes()) {
+            double baseFlat = baseStats.getFlat(type);
+            double basePercent = baseStats.getPercent(type);
+
+            // PDCへ保存 (再計算用: rpgstats.base.<type>_flat)
+            saveStatValue(meta, "base", type, baseFlat, basePercent);
+
+            // 最終値の計算
+            double finalFlat = baseFlat;
+            if (!ignoredMultipliers.contains(type) && baseFlat != 0) {
+                finalFlat *= multiplier;
+            }
+            finalStats.setFlat(type, finalFlat);
+            finalStats.setPercent(type, basePercent); // Percentには通常倍率は乗らない想定
+        }
+
+        // Modifierの加算と保存
+        if (modifiers != null) {
+            for (Map.Entry<StatType, Double> entry : modifiers.entrySet()) {
+                StatType type = entry.getKey();
+                double modValue = entry.getValue();
+
+                // PDCへ保存 (再計算用: rpgstats.mod.<type>)
+                meta.getPersistentDataContainer().set(
+                        new NamespacedKey(KEY_PREFIX, "mod." + type.name().toLowerCase()),
+                        PersistentDataType.DOUBLE,
+                        modValue
+                );
+
+                // 最終値に加算 (Modifierは基本的にFlat値加算)
+                finalStats.setFlat(type, finalStats.getFlat(type) + modValue);
+            }
+        }
+
+        // 3. メタデータ(Flavor, Type, Rarity)の保存
+        if (itemType != null) {
+            meta.getPersistentDataContainer().set(ITEM_TYPE_KEY, PersistentDataType.STRING, itemType);
+        }
+        if (rarity != null) {
+            meta.getPersistentDataContainer().set(RARITY_KEY, PersistentDataType.STRING, rarity);
+        }
+        if (flavorText != null && !flavorText.isEmpty()) {
+            // リストを特定の区切り文字で結合して保存
+            String joinedFlavor = String.join("|~|", flavorText);
+            meta.getPersistentDataContainer().set(FLAVOR_TEXT_KEY, PersistentDataType.STRING, joinedFlavor);
+        }
+
+        // 4. Loreの生成 (LoreBuilderには最終計算結果を渡す)
+        meta.setLore(LoreBuilder.build(finalStats, false, itemType, flavorText, tracker, rarity, modifiers, grade));
 
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
         meta.addItemFlags(ItemFlag.HIDE_ADDITIONAL_TOOLTIP);
 
-        // NBTに保存
+        // 5. 最終ステータスをPDCに保存 (ゲーム内ロジック参照用: rpgstats.<type>_flat)
         PersistentDataContainer container = meta.getPersistentDataContainer();
-        for (StatType type : stats.getAllTypes()) {
-            container.set(new NamespacedKey("rpgstats", type.name().toLowerCase() + "_flat"), PersistentDataType.DOUBLE, stats.getFlat(type));
-            container.set(new NamespacedKey("rpgstats", type.name().toLowerCase() + "_percent"), PersistentDataType.DOUBLE, stats.getPercent(type));
+        for (StatType type : finalStats.getAllTypes()) {
+            container.set(new NamespacedKey(KEY_PREFIX, type.name().toLowerCase() + "_flat"), PersistentDataType.DOUBLE, finalStats.getFlat(type));
+            container.set(new NamespacedKey(KEY_PREFIX, type.name().toLowerCase() + "_percent"), PersistentDataType.DOUBLE, finalStats.getPercent(type));
         }
-        item.setItemMeta(meta);
 
+        item.setItemMeta(meta);
         item.setData(DataComponentTypes.TOOLTIP_DISPLAY, TooltipDisplay.tooltipDisplay().addHiddenComponents(DataComponentTypes.ATTRIBUTE_MODIFIERS).build());
 
         return item;
     }
 
+    // 内部ヘルパー: Base値保存
+    private void saveStatValue(ItemMeta meta, String category, StatType type, double flat, double percent) {
+        PersistentDataContainer pdc = meta.getPersistentDataContainer();
+        if (flat != 0) {
+            pdc.set(new NamespacedKey(KEY_PREFIX, category + "." + type.name().toLowerCase() + "_flat"), PersistentDataType.DOUBLE, flat);
+        }
+        if (percent != 0) {
+            pdc.set(new NamespacedKey(KEY_PREFIX, category + "." + type.name().toLowerCase() + "_percent"), PersistentDataType.DOUBLE, percent);
+        }
+    }
+
+    /**
+     * 既存のアイテムを読み込み、新しいグレード等を適用して再構築します。
+     * PDCに保存されたBase値とModifier値を使用するため、情報の欠落がありません。
+     */
+    public ItemStack updateItem(ItemStack item, @Nullable FabricationGrade newGrade) {
+        if (item == null || !item.hasItemMeta()) return item;
+        ItemMeta meta = item.getItemMeta();
+        PersistentDataContainer pdc = meta.getPersistentDataContainer();
+
+        // 1. 保存された情報の復元
+        String itemType = pdc.get(ITEM_TYPE_KEY, PersistentDataType.STRING);
+        String rarity = pdc.get(RARITY_KEY, PersistentDataType.STRING);
+
+        // フレーバーテキスト復元
+        List<String> flavorText = new ArrayList<>();
+        String joinedFlavor = pdc.get(FLAVOR_TEXT_KEY, PersistentDataType.STRING);
+        if (joinedFlavor != null) {
+            flavorText = Arrays.asList(joinedFlavor.split("\\|~\\|"));
+        }
+
+        // BaseStats復元
+        StatMap baseStats = new StatMap();
+        for (StatType type : StatType.values()) {
+            Double flat = pdc.get(new NamespacedKey(KEY_PREFIX, "base." + type.name().toLowerCase() + "_flat"), PersistentDataType.DOUBLE);
+            Double percent = pdc.get(new NamespacedKey(KEY_PREFIX, "base." + type.name().toLowerCase() + "_percent"), PersistentDataType.DOUBLE);
+            if (flat != null) baseStats.setFlat(type, flat);
+            if (percent != null) baseStats.setPercent(type, percent);
+        }
+
+        // Modifiers復元
+        Map<StatType, Double> modifiers = new HashMap<>();
+        for (StatType type : StatType.values()) {
+            Double modVal = pdc.get(new NamespacedKey(KEY_PREFIX, "mod." + type.name().toLowerCase()), PersistentDataType.DOUBLE);
+            if (modVal != null) {
+                modifiers.put(type, modVal);
+            }
+        }
+
+        // Grade復元または更新
+        FabricationGrade gradeToUse;
+        if (newGrade != null) {
+            gradeToUse = newGrade;
+        } else {
+            int gid = pdc.getOrDefault(GRADE_KEY, PersistentDataType.INTEGER, 1);
+            gradeToUse = FabricationGrade.fromId(gid);
+        }
+
+        // ランダムトラッカーは復元できないため、ダミーまたは再計算が必要ですが、
+        // LoreBuilderの表示用だけなら、現在のBaseとConfigの定義(不明)との比較が必要です。
+        // ここでは簡易的に「保存された情報だけで再構築」するため、新規の空トラッカーを渡します。
+        // ※厳密にやりたい場合はトラッカーのratioもPDCに保存する必要があります。
+        ItemLoader.RandomStatTracker tracker = new ItemLoader.RandomStatTracker();
+        // 改善案: tracker.ratio をPDCに保存しておき、ダミーのtrackerにセットするメソッドを作る
+
+        // 再適用
+        return applyStatsToItem(item, baseStats, modifiers, itemType, flavorText, tracker, rarity, gradeToUse);
+    }
+
     // 既存コード互換用のオーバーロード
     public ItemStack applyStatsToItem(ItemStack item, StatMap stats, @Nullable String itemType, @Nullable List<String> flavorText, ItemLoader.RandomStatTracker tracker, @Nullable String rarity, Map<StatType, Double> appliedModifiers) {
-        return applyStatsToItem(item, stats, itemType, flavorText, tracker, rarity, appliedModifiers, null);
+        // ※注意: 以前のコードフローでは ItemLoader が既に Grade倍率 を stats に適用済みの場合がありました。
+        // 新しいフローでは applyStatsToItem は「BaseStats」を期待します。
+        // 互換性を保つには、ここで呼び出し元がどういう値を渡しているかによりますが、
+        // 基本的に ItemLoader 側も修正するため、このオーバーロードは推奨されません。
+        return applyStatsToItem(item, stats, appliedModifiers, itemType, flavorText, tracker, rarity, null);
     }
 
     public StatMap readStatsFromItem(ItemStack item) {
@@ -120,8 +268,8 @@ public class ItemFactory implements CommandExecutor, TabCompleter {
 
         PersistentDataContainer container = item.getItemMeta().getPersistentDataContainer();
         for (StatType type : StatType.values()) {
-            Double flat = container.get(new NamespacedKey("rpgstats", type.name().toLowerCase() + "_flat"), PersistentDataType.DOUBLE);
-            Double percent = container.get(new NamespacedKey("rpgstats", type.name().toLowerCase() + "_percent"), PersistentDataType.DOUBLE);
+            Double flat = container.get(new NamespacedKey(KEY_PREFIX, type.name().toLowerCase() + "_flat"), PersistentDataType.DOUBLE);
+            Double percent = container.get(new NamespacedKey(KEY_PREFIX, type.name().toLowerCase() + "_percent"), PersistentDataType.DOUBLE);
             if (flat != null) stats.setFlat(type, flat);
             if (percent != null) stats.setPercent(type, percent);
         }
@@ -613,36 +761,36 @@ class ItemLoader {
                 // ランダムステータスの品質判定用トラッカー初期化
                 RandomStatTracker tracker = new RandomStatTracker();
 
-                StatMap stats = new StatMap();
+                StatMap baseStats = new StatMap(); // ★ ここには「等級倍率適用前」の値を入れる
+
                 if (config.isConfigurationSection(key + ".stats")) {
                     for (String statKey : config.getConfigurationSection(key + ".stats").getKeys(false)) {
                         StatType type = StatType.valueOf(statKey.toUpperCase());
-
-                        // flat値処理
+                        // flat値
                         double flat;
                         if (config.isConfigurationSection(key + ".stats." + statKey + ".flat")) {
                             double base = config.getDouble(key + ".stats." + statKey + ".flat.base", 0);
                             double spread = config.getDouble(key + ".stats." + statKey + ".flat.spread", 0);
                             flat = base + (spread > 0 ? random.nextDouble() * spread : 0);
-                            tracker.add(type,base, spread, flat);
+                            tracker.add(type, base, spread, flat);
                         } else {
                             flat = config.getDouble(key + ".stats." + statKey + ".flat", 0);
-                            tracker.add(type,flat, 0, flat);
+                            tracker.add(type, flat, 0, flat);
                         }
-                        stats.setFlat(type, flat);
+                        baseStats.setFlat(type, flat);
 
-                        // percent値処理
+                        // percent値
                         double percent;
                         if (config.isConfigurationSection(key + ".stats." + statKey + ".percent")) {
                             double base = config.getDouble(key + ".stats." + statKey + ".percent.base", 0);
                             double spread = config.getDouble(key + ".stats." + statKey + ".percent.spread", 0);
                             percent = base + (spread > 0 ? random.nextDouble() * spread : 0);
-                            tracker.add(type,base, spread, percent);
+                            tracker.add(type, base, spread, percent);
                         } else {
                             percent = config.getDouble(key + ".stats." + statKey + ".percent", 0);
-                            tracker.add(type,percent, 0, percent);
+                            tracker.add(type, percent, 0, percent);
                         }
-                        stats.setPercent(type, percent);
+                        baseStats.setPercent(type, percent);
                     }
                 }
 
@@ -650,82 +798,38 @@ class ItemLoader {
                 // --- 新規追加: レアリティに基づくモディファイアー処理 ---
                 // ----------------------------------------------------
                 boolean disableModifiers = config.getBoolean(key + ".disable_modifiers", false);
-
-                Map<StatType, Double> appliedModifiers = new HashMap<>();
-                String rarity = config.getString(key + ".rarity", "コモン"); // レアリティ取得 (大文字化)
+                Map<StatType, Double> modifiers = new HashMap<>();
+                String rarity = config.getString(key + ".rarity", "コモン");
 
                 if (!disableModifiers) {
                     int maxModifiers = MAX_MODIFIERS_BY_RARITY.getOrDefault(rarity, 1);
-                    int modifiersToApply = random.nextInt(maxModifiers) + 1; // 1個から最大個数までランダムに付与
+                    int modifiersToApply = random.nextInt(maxModifiers) + 1;
 
-                    // モディファイアーを抽選・付与
-                    Set<StatType> appliedTypes = new HashSet<>();
-
-                    // 重み付き抽選のためのリストを作成
+                    // (省略: Weighted List 生成ロジックは元のコードと同じ)
                     List<ModifierDefinition> weightedModifiers = new ArrayList<>();
                     for (ModifierDefinition def : MODIFIER_DEFINITIONS) {
-                        for (int j = 0; j < (int) (def.weight * 10); j++) { // 重みを整数に変換してリストに追加
-                            weightedModifiers.add(def);
-                        }
+                        for (int j = 0; j < (int) (def.weight * 10); j++) weightedModifiers.add(def);
                     }
+                    Set<StatType> appliedTypes = new HashSet<>();
 
                     for (int m = 0; m < modifiersToApply; m++) {
                         if (weightedModifiers.isEmpty()) break;
-
-                        // 重み付きリストからランダムに選択
                         ModifierDefinition selectedDef = weightedModifiers.get(random.nextInt(weightedModifiers.size()));
-
-                        // すでに付与されたStatTypeの場合はスキップ (重複防止)
                         if (appliedTypes.contains(selectedDef.type)) {
-                            // 同じタイプのモディファイアーが選ばれた場合は、抽選リストから削除し、mをデクリメントして再試行
                             weightedModifiers.removeIf(def -> def.type == selectedDef.type);
-                            m--;
-                            continue;
+                            m--; continue;
                         }
-
-                        // ランダムな値を生成し、StatMapに追加
                         double modifierValue = selectedDef.minFlat + random.nextDouble() * (selectedDef.maxFlat - selectedDef.minFlat);
 
-                        // 既存のflat値に加算 (モディファイアーは基本的にflat値を想定)
-                        stats.setFlat(selectedDef.type, stats.getFlat(selectedDef.type) + modifierValue);
-                        appliedModifiers.put(selectedDef.type, modifierValue);
-
-                        // 品質トラッカーには追加しない (モディファイアーは品質判定の対象外とするため)
+                        // Modifier Map に追加 (Base Stats には足さない)
+                        modifiers.put(selectedDef.type, modifierValue);
 
                         appliedTypes.add(selectedDef.type);
-                        // System.out.println(key + "にモディファイアー: " + selectedDef.type + " +" + modifierValue + "を付与"); // デバッグ用
-
-                        // 抽選リストからそのStatTypeをすべて削除し、次に選ばれないようにする
                         weightedModifiers.removeIf(def -> def.type == selectedDef.type);
                     }
                 }
                 // 品質ランク判定
                 QualityRank rank = QualityRank.fromRatio(tracker.getRatio());
-
-                // 1. 倍率を適用したくないStatTypeを定義します（定数としてクラスの上部に定義してもOK）
-                // 例: クリティカル率や移動速度などは倍率をかけない場合
-                Set<StatType> ignoredStats = EnumSet.of(StatType.CRIT_CHANCE,StatType.ATTACK_SPEED);
-
-                if (multiplier != 1.0) {
-                    for (StatType type : stats.getAllTypes()) {
-
-                        // 2. 【追加】除外リストに含まれている場合はスキップ
-                        if (ignoredStats.contains(type)) {
-                            continue;
-                        }
-
-                        double currentFlat = stats.getFlat(type);
-                        // Flat値のみ倍率適用 (%アップなどは倍率かけないのが一般的)
-                        if (currentFlat != 0) {
-                            stats.setFlat(type, currentFlat * multiplier);
-
-                            // 適用されたモディファイアー記録用Mapの値も更新
-                            if (appliedModifiers.containsKey(type)) {
-                                appliedModifiers.put(type, appliedModifiers.get(type) * multiplier);
-                            }
-                        }
-                    }
-                }
 
                 // 名前に品質名をプレフィックス付け
                 String originalName = config.getString(key + ".name", key);
@@ -767,7 +871,7 @@ class ItemLoader {
                 item.setItemMeta(meta);
                 List<String> flavorText = config.getStringList(key + ".flavor");
                 // Lore + PDC 書き込みをItemFactory側で処理
-                item = factory.applyStatsToItem(item, stats,itemType,flavorText,tracker,rarity,appliedModifiers,grade);
+                item = factory.applyStatsToItem(item, baseStats, modifiers, itemType, flavorText, tracker, rarity, grade);
 
                 double recoveryAmount = config.getDouble(key + ".recovery-amount", 0.0);
                 int cooldownSeconds = config.getInt(key + ".cooldown-seconds", 0);

@@ -1,7 +1,9 @@
 package com.lunar_prototype.deepwither;
 
+import com.lunar_prototype.deepwither.api.event.onPlayerRecevingDamageEvent;
 import io.lumine.mythic.bukkit.MythicBukkit;
 import io.lumine.mythic.bukkit.events.MythicDamageEvent;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
@@ -437,6 +439,10 @@ public class DamageManager implements Listener {
                 player.getWorld().playSound(player.getLocation(), Sound.ITEM_SHIELD_BLOCK, 1f, 1f);
                 sendLog(player, PlayerSettingsManager.SettingType.SHOW_MITIGATION, "§b盾防御！ §7軽減: §a" + Math.round(blockedDamage) + " §c(" + Math.round(finalDamage) + "被弾)");
             }
+        }
+
+        if (attacker != null) {
+            Bukkit.getPluginManager().callEvent(new onPlayerRecevingDamageEvent(player, attacker, finalDamage));
         }
 
         e.setDamage(0.0);
