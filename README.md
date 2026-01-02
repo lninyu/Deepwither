@@ -6,7 +6,7 @@
 ![Latest Version](https://img.shields.io/badge/Version-Latest-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-Paper%20/%20Spigot-orange.svg)
 
-**RuskLaboが開発・運用している組織向けのマインクラフトサーバープラグイン**
+**RuskServerが開発・運用している組織(Echoes of Aether)向けのマインクラフトサーバープラグイン**
 
 </div>
 
