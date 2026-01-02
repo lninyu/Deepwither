@@ -1,99 +1,69 @@
 package com.lunar_prototype.deepwither.data;
 
+import com.google.gson.Gson;
+import com.lunar_prototype.deepwither.DatabaseManager;
 import com.lunar_prototype.deepwither.Deepwither;
+import com.lunar_prototype.deepwither.util.IManager;
 import org.bukkit.Bukkit;
-import org.bukkit.configuration.file.YamlConfiguration;
-import org.bukkit.configuration.serialization.ConfigurationSerialization;
-
-import java.io.File;
-import java.io.IOException;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
-public class FileDailyTaskDataStore implements DailyTaskDataStore {
+public class FileDailyTaskDataStore implements DailyTaskDataStore, IManager {
 
     private final Deepwither plugin;
-    private final File dataFolder;
+    private final DatabaseManager db;
+    private final Gson gson = new Gson();
 
-    static {
-        ConfigurationSerialization.registerClass(DailyTaskData.class);
-    }
-
-    public FileDailyTaskDataStore(Deepwither plugin) {
+    public FileDailyTaskDataStore(Deepwither plugin, DatabaseManager db) {
         this.plugin = plugin;
-        this.dataFolder = new File(plugin.getDataFolder(), "daily_tasks");
-        if (!dataFolder.exists()) {
-            dataFolder.mkdirs();
-        }
+        this.db = db;
     }
 
-    private File getPlayerFile(UUID playerId) {
-        return new File(dataFolder, playerId.toString() + ".yml");
+    @Override
+    public void init() {
+        // 必要に応じて初期化（テーブル作成はDatabaseManagerで実施済み）
     }
 
-    // --- データロード (非同期: 起動/ログイン時はOK) ---
     @Override
     public CompletableFuture<DailyTaskData> loadTaskData(UUID playerId) {
-        CompletableFuture<DailyTaskData> future = new CompletableFuture<>();
-
-        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            File playerFile = getPlayerFile(playerId);
-            if (!playerFile.exists()) {
-                future.complete(null);
-                return;
+        return CompletableFuture.supplyAsync(() -> {
+            try (PreparedStatement ps = db.getConnection().prepareStatement(
+                    "SELECT data_json FROM player_daily_tasks WHERE uuid = ?")) {
+                ps.setString(1, playerId.toString());
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) {
+                    return gson.fromJson(rs.getString("data_json"), DailyTaskData.class);
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
             }
-            try {
-                YamlConfiguration config = YamlConfiguration.loadConfiguration(playerFile);
-                Object serializedData = config.get("data");
-
-                DailyTaskData loadedData = (serializedData instanceof DailyTaskData) ? (DailyTaskData) serializedData : null;
-                future.complete(loadedData);
-            } catch (Exception e) {
-                plugin.getLogger().severe("Failed to load daily task data for " + playerId + ": " + e.getMessage());
-                future.completeExceptionally(e);
-            }
+            return null;
         });
-        return future;
     }
 
-    // ----------------------------------------------------
-    // ★修正された データ保存 (saveTaskData) ★
-    // ----------------------------------------------------
     @Override
     public void saveTaskData(DailyTaskData data) {
+        String json = gson.toJson(data);
+        // plugin.isEnabled() チェックを含めた非同期/同期の振り分け
+        Runnable saveTask = () -> {
+            try (PreparedStatement ps = db.getConnection().prepareStatement(
+                    "INSERT INTO player_daily_tasks (uuid, data_json) VALUES (?, ?) " +
+                            "ON CONFLICT(uuid) DO UPDATE SET data_json = excluded.data_json")) {
+                ps.setString(1, data.getPlayerId().toString());
+                ps.setString(2, json);
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                e.printStackTrace();
+            }
+        };
 
-        // onDisable中に呼ばれた場合 (プラグインが無効化されている場合) は、メインスレッドで同期的に実行。
-        // それ以外の場合 (ゲームプレイ中のタスク完了など) は非同期で実行。
         if (plugin.isEnabled()) {
-            // ★プラグインが有効な場合: 非同期で実行
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-                performSave(data);
-            });
+            Bukkit.getScheduler().runTaskAsynchronously(plugin, saveTask);
         } else {
-            // ★プラグインが無効な場合 (onDisable中): メインスレッドで同期的に実行
-            performSave(data);
-        }
-    }
-
-    /**
-     * 実際のファイル書き込み処理。同期/非同期のどちらからも呼ばれる。
-     */
-    private void performSave(DailyTaskData data) {
-        File playerFile = getPlayerFile(data.getPlayerId());
-
-        try {
-            YamlConfiguration config = new YamlConfiguration();
-            config.set("data", data);
-
-            // ファイルI/O処理
-            config.save(playerFile);
-
-        } catch (IOException e) {
-            plugin.getLogger().severe("Failed to save daily task data for " + data.getPlayerId() + " due to IO error: " + e.getMessage());
-            e.printStackTrace();
-        } catch (Exception e) {
-            plugin.getLogger().severe("Failed to save daily task data for " + data.getPlayerId() + ": " + e.getMessage());
-            e.printStackTrace();
+            saveTask.run();
         }
     }
 }

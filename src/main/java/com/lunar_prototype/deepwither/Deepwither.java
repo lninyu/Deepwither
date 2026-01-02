@@ -32,6 +32,7 @@ import com.lunar_prototype.deepwither.raidboss.RaidBossListener;
 import com.lunar_prototype.deepwither.raidboss.RaidBossManager;
 import com.lunar_prototype.deepwither.town.TownBurstManager;
 import com.lunar_prototype.deepwither.tutorial.TutorialController;
+import com.lunar_prototype.deepwither.util.IManager;
 import com.lunar_prototype.deepwither.util.MythicMobSafeZoneManager;
 import com.vexsoftware.votifier.model.VotifierEvent;
 import io.lumine.mythic.bukkit.events.MythicDropLoadEvent;
@@ -60,9 +61,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 import java.io.File;
 import java.io.IOException;
 import java.sql.SQLException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -77,12 +76,14 @@ public final class  Deepwither extends JavaPlugin {
     private static Deepwither instance;
     public static Deepwither getInstance() { return instance; }
     private Map<UUID, Location> safeZoneSpawns = new HashMap<>();
+    private final Map<Class<? extends IManager>, IManager> managers = new LinkedHashMap<>();
     private File safeZoneSpawnsFile;
     private FileConfiguration safeZoneSpawnsConfig;
     private FileConfiguration questConfig;
     private LevelManager levelManager;
     private AttributeManager attributeManager;
     private SkilltreeManager skilltreeManager;
+    private DatabaseManager databaseManager;
     private ManaManager manaManager;
     private SkillLoader skillLoader;
     private SkillSlotManager skillSlotManager;
@@ -119,6 +120,7 @@ public final class  Deepwither extends JavaPlugin {
     private PlayerSettingsManager settingsManager;
     private SettingsGUI settingsGUI;
     private CompanionManager companionManager;
+    private PlayerQuestDataStore playerQuestDataStore;
     private RaidBossManager raidBossManager;
     private LayerMoveManager layerMoveManager;
     private static Economy econ = null;
@@ -214,7 +216,21 @@ public final class  Deepwither extends JavaPlugin {
                 Runtime.getRuntime().availableProcessors()
         );
 
-        PlayerQuestDataStore playerQuestDataStore = new FilePlayerQuestDataStore(this);
+        try {
+            // 1. 基盤（Database）の初期化
+            this.databaseManager = new DatabaseManager(this);
+
+            // 2. マネージャーの登録とインスタンス化
+            setupManagers();
+
+            // 3. 一括初期化実行
+            managers.values().forEach(IManager::init);
+
+
+        } catch (SQLException e) {
+            getLogger().severe("Database initialization failed!");
+            getServer().getPluginManager().disablePlugin(this);
+        }
 
         statManager = new StatManager();
         companionManager = new CompanionManager(this);
@@ -258,7 +274,6 @@ public final class  Deepwither extends JavaPlugin {
         townBurstManager = new TownBurstManager(this);
         this.creditManager = new CreditManager(this);
         this.traderManager = new TraderManager(this, itemFactory);
-        fileDailyTaskDataStore = new  FileDailyTaskDataStore(this);
         this.dailyTaskManager = new DailyTaskManager(this,fileDailyTaskDataStore);
         artifactManager = new ArtifactManager(this);
         lootChestManager = new LootChestManager(this);
@@ -295,27 +310,8 @@ public final class  Deepwither extends JavaPlugin {
 
         new RegenTask(statManager).start(this);
         guildQuestManager.startup();
-        playerQuestManager = new PlayerQuestManager(this,guildQuestManager,playerQuestDataStore);
 
         saveDefaultConfig(); // MobExpConfig.yml
-        try {
-            levelManager = new LevelManager(new File(getDataFolder(), "levels.db"));
-        } catch (SQLException e) {
-            getLogger().severe("SQLite初期化に失敗");
-            return;
-        }
-        try {
-            attributeManager = new AttributeManager(new File(getDataFolder(), "levels.db"));
-        } catch (SQLException e) {
-            getLogger().severe("SQLite初期化に失敗");
-            return;
-        }
-        try {
-            skilltreeManager = new SkilltreeManager(new File(getDataFolder(), "levels.db"),this);
-        } catch (SQLException e) {
-            getLogger().severe("SQLite初期化に失敗");
-            return;
-        }
 
         OutpostConfig outpostConfig = new OutpostConfig(this,"outpost.yml");
 
@@ -434,23 +430,14 @@ public final class  Deepwither extends JavaPlugin {
         getCommand("resetstatusgui").setExecutor(new ResetGUICommand(resetGUI));
         getCommand("pvp").setExecutor(new PvPCommand());
         getServer().getPluginManager().registerEvents(new PvPWorldListener(), this);
-
-        String message = ChatColor.translateAlternateColorCodes('&',
-                "&b[Echoes of Aether] &cまだ今日の投票が終わっていないようです！ &a/vote &cで投票して報酬をゲットしましょう！");
-
-        // 定期実行タスクの設定
-        // 20 ticks = 1秒 なので、120秒 = 2400 ticks
-        //new BukkitRunnable() {
-        //    @Override
-        //    public void run() {
-        //        Bukkit.broadcastMessage(message);
-        //    }
-        //}.runTaskTimer(this, 0L, 2400L); // 0Lは開始遅延、2400Lは実行間隔
     }
 
     @Override
     public void onDisable() {
-        // Plugin shutdown logic
+        List<IManager> managerList = new ArrayList<>(managers.values());
+        Collections.reverse(managerList);
+        managerList.forEach(IManager::shutdown);
+
         for (Player p : Bukkit.getOnlinePlayers()) {
             levelManager.unload(p.getUniqueId());
             attributeManager.unload(p.getUniqueId());
@@ -465,6 +452,24 @@ public final class  Deepwither extends JavaPlugin {
         guildQuestManager.shutdown();
         saveSafeZoneSpawns();
         shutdownExecutor();
+    }
+
+    private void setupManagers() {
+        // ここでインスタンスを作成し、同時にフィールドにも代入（既存コード壊し防止）
+        this.attributeManager = register(AttributeManager.class, new AttributeManager(databaseManager));
+        this.levelManager = register(LevelManager.class, new LevelManager(databaseManager));
+        this.skilltreeManager = register(SkilltreeManager.class, new SkilltreeManager(databaseManager, this));
+        // 新しくSQLite対応させたデータストア (引数にdatabaseManagerを渡す)
+        this.fileDailyTaskDataStore = register(FileDailyTaskDataStore.class,
+                new FileDailyTaskDataStore(this, databaseManager));
+
+        this.playerQuestDataStore = (PlayerQuestDataStore) register(FilePlayerQuestDataStore.class,
+                new FilePlayerQuestDataStore(databaseManager));
+    }
+
+    private <T extends IManager> T register(Class<T> clazz, T manager) {
+        managers.put(clazz, manager);
+        return manager;
     }
 
     private boolean setupEconomy() {
@@ -577,4 +582,6 @@ public final class  Deepwither extends JavaPlugin {
             questConfig = null;
         }
     }
+
+
 }

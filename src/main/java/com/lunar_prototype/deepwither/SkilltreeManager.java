@@ -6,20 +6,26 @@ import java.sql.*;
 import java.util.*;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import com.lunar_prototype.deepwither.util.IManager;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public class SkilltreeManager {
-
-    private final Connection connection;
+public class SkilltreeManager implements IManager {
+    
     private final Gson gson = new Gson();
-    private final File treeFile;
+    private File treeFile;
     private final JavaPlugin plugin;
-    private final YamlConfiguration treeConfig;
+    private YamlConfiguration treeConfig;
+    private final DatabaseManager db;
 
-    public SkilltreeManager(File dbFile, JavaPlugin plugin) throws SQLException {
+    public SkilltreeManager(DatabaseManager db, JavaPlugin plugin) {
+        this.db = db;
         this.plugin = plugin;
-        this.treeFile = new File(plugin.getDataFolder(), "tree.yaml");
+    }
+
+    @Override
+    public void init() {
+        treeFile = new File(plugin.getDataFolder(), "tree.yaml");
         if (!treeFile.exists()) {
             treeFile.getParentFile().mkdirs();
             try {
@@ -28,22 +34,11 @@ public class SkilltreeManager {
                 throw new RuntimeException(e);
             }
         }
-        this.treeConfig = YamlConfiguration.loadConfiguration(treeFile);
-
-        connection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
-        try (Statement stmt = connection.createStatement()) {
-            stmt.executeUpdate("""
-                CREATE TABLE IF NOT EXISTS player_skilltree (
-                    uuid TEXT PRIMARY KEY,
-                    skill_point INTEGER,
-                    skills TEXT
-                )
-            """);
-        }
+        treeConfig = YamlConfiguration.loadConfiguration(treeFile);
     }
 
     public SkillData load(UUID uuid) {
-        try (PreparedStatement ps = connection.prepareStatement(
+        try (PreparedStatement ps = db.getConnection().prepareStatement(
                 "SELECT skill_point, skills FROM player_skilltree WHERE uuid = ?")) {
             ps.setString(1, uuid.toString());
             ResultSet rs = ps.executeQuery();
@@ -77,7 +72,7 @@ public class SkilltreeManager {
     public void save(UUID uuid, SkillData data) {
         data.recalculatePassiveStats(treeConfig);
         String skillsJson = gson.toJson(data.getSkills());
-        try (PreparedStatement ps = connection.prepareStatement("""
+        try (PreparedStatement ps = db.getConnection().prepareStatement("""
             INSERT INTO player_skilltree (uuid, skill_point, skills)
             VALUES (?, ?, ?)
             ON CONFLICT(uuid) DO UPDATE SET

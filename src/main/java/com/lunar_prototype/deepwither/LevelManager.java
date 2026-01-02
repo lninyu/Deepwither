@@ -1,5 +1,6 @@
 package com.lunar_prototype.deepwither;
 
+import com.lunar_prototype.deepwither.util.IManager;
 import org.bukkit.Bukkit;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
@@ -11,27 +12,23 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-public class LevelManager {
+public class LevelManager implements IManager {
     private static final int MAX_LEVEL = 50;
 
     private final Map<UUID, PlayerLevelData> dataMap = new HashMap<>();
-    private final Connection connection;
+    private final DatabaseManager db;
 
-    public LevelManager(File dbFile) throws SQLException {
-        connection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
-        try (Statement stmt = connection.createStatement()) {
-            stmt.executeUpdate("""
-                CREATE TABLE IF NOT EXISTS player_levels (
-                    uuid TEXT PRIMARY KEY,
-                    level INTEGER,
-                    exp REAL
-                )
-            """);
-        }
+    public LevelManager(DatabaseManager db) {
+        this.db = db;
+    }
+
+    @Override
+    public void init() {
+        // もし起動時にやりたいことがあればここに書く（なければ空でOK）
     }
 
     public void load(UUID uuid) {
-        try (PreparedStatement ps = connection.prepareStatement("SELECT level, exp FROM player_levels WHERE uuid = ?")) {
+        try (PreparedStatement ps = db.getConnection().prepareStatement("SELECT level, exp FROM player_levels WHERE uuid = ?")) {
             ps.setString(1, uuid.toString());
             ResultSet rs = ps.executeQuery();
             if (rs.next()) {
@@ -59,7 +56,7 @@ public class LevelManager {
         int level = Math.min(data.getLevel(), MAX_LEVEL);
         double exp = (level >= MAX_LEVEL) ? 0 : data.getExp(); // 上限ならEXPを0に
 
-        try (PreparedStatement ps = connection.prepareStatement("""
+        try (PreparedStatement ps = db.getConnection().prepareStatement("""
             INSERT INTO player_levels (uuid, level, exp) VALUES (?, ?, ?)
             ON CONFLICT(uuid) DO UPDATE SET level = excluded.level, exp = excluded.exp
         """)) {

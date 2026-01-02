@@ -1,38 +1,31 @@
 package com.lunar_prototype.deepwither;
 
-import java.io.File;
+import com.lunar_prototype.deepwither.util.IManager;
+
 import java.sql.*;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-public class AttributeManager {
+public class AttributeManager implements IManager {
 
     private static final int MAX_PER_STAT = 50;
 
     private final Map<UUID, PlayerAttributeData> dataMap = new HashMap<>();
-    private final Connection connection;
+    private final DatabaseManager db;
 
-    public AttributeManager(File dbFile) throws SQLException {
-        connection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
-        try (Statement stmt = connection.createStatement()) {
-            stmt.executeUpdate("""
-                CREATE TABLE IF NOT EXISTS player_attributes (
-                    uuid TEXT PRIMARY KEY,
-                    total_points INTEGER,
-                    str INTEGER,
-                    vit INTEGER,
-                    mnd INTEGER,
-                    int INTEGER,
-                    agi INTEGER
-                )
-            """);
-        }
+    public AttributeManager(DatabaseManager db) {
+        this.db = db;
+    }
+
+    @Override
+    public void init() {
+        // もし起動時にやりたいことがあればここに書く（なければ空でOK）
     }
 
     public void load(UUID uuid) {
-        try (PreparedStatement ps = connection.prepareStatement("SELECT * FROM player_attributes WHERE uuid = ?")) {
+        try (PreparedStatement ps = db.getConnection().prepareStatement("SELECT * FROM player_attributes WHERE uuid = ?")) {
             ps.setString(1, uuid.toString());
             ResultSet rs = ps.executeQuery();
             if (rs.next()) {
@@ -57,7 +50,7 @@ public class AttributeManager {
         PlayerAttributeData data = dataMap.get(uuid);
         if (data == null) return;
 
-        try (PreparedStatement ps = connection.prepareStatement("""
+        try (PreparedStatement ps = db.getConnection().prepareStatement("""
             INSERT INTO player_attributes (
                 uuid, total_points, str, vit, mnd, int, agi
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
