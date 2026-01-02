@@ -224,10 +224,16 @@ public final class  Deepwither extends JavaPlugin {
             setupManagers();
 
             // 3. 一括初期化実行
-            managers.values().forEach(IManager::init);
-
-
-        } catch (SQLException e) {
+            for (IManager manager : managers.values()) {
+                try {
+                    manager.init();
+                } catch (Exception e) {
+                    // どのマネージャーが失敗したか明確にする
+                    getLogger().severe(manager.getClass().getSimpleName() + " の初期化中にエラーが発生しました。");
+                    throw e; // 上の try-catch に飛ばして onEnable 全体を失敗させる
+                }
+            }
+        } catch (Exception e) {
             getLogger().severe("Database initialization failed!");
             getServer().getPluginManager().disablePlugin(this);
         }
