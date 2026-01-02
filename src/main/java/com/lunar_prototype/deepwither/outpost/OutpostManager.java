@@ -13,6 +13,7 @@ public class OutpostManager {
     private OutpostEvent activeEvent = null;
     private long cooldownEnds = 0;
     private final Random random = new Random();
+    private double currentBonusChance = 0.0;
 
     private OutpostManager(JavaPlugin plugin, OutpostConfig config) {
         this.plugin = plugin;
@@ -40,21 +41,25 @@ public class OutpostManager {
         Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::checkAndStartEvent, intervalTicks, intervalTicks);
     }
 
+
+
     /**
      * イベント開始の抽選と条件チェックを行います。
      */
     private void checkAndStartEvent() {
-        if (activeEvent != null || isCooldownActive()) {
-            return;
-        }
+        if (activeEvent != null || isCooldownActive()) return;
+        if (Bukkit.getOnlinePlayers().size() < config.getGlobalSettings().getMinPlayersOnline()) return;
 
-        if (Bukkit.getOnlinePlayers().size() < config.getGlobalSettings().getMinPlayersOnline()) {
-            return;
-        }
+        double baseChance = config.getGlobalSettings().getEventChancePercent(); // 例: 20.0
+        double totalChance = baseChance + currentBonusChance;
 
-        // 確率抽選
-        if (random.nextInt(100) < config.getGlobalSettings().getEventChancePercent()) {
+        if (random.nextDouble() * 100 < totalChance) {
+            // 当選
+            currentBonusChance = 0.0; // ボーナスリセット
             startRandomOutpost();
+        } else {
+            // ハズレたら次回の確率を5%上乗せ（設定値の25%分など）
+            currentBonusChance += (baseChance * 0.25);
         }
     }
 
