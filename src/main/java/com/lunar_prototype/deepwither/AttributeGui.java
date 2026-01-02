@@ -115,18 +115,18 @@ class StatEffectText {
     public static List<String> getBuffDescription(StatType type, int level) {
         List<String> list = new ArrayList<>();
         switch (type) {
-            case STR -> list.add("+ " + (level * 2) + " 攻撃力");
+            case STR -> list.add("+ " + (level * 1) + "% 攻撃力");
             case VIT -> {
-                list.add("+ " + (level * 2) + " 最大HP");
-                list.add("+ " + (level * 1) + " 防御力");
+                list.add("+ " + (level * 1) + "% 最大HP");
+                list.add("+ " + (level * 0.5) + "% 防御力");
             }
             case MND -> {
                 list.add("+ " + (level * 1.5) + "% クリティカルダメージ");
-                list.add("+ " + (level * 2) + " 発射体ダメージ");
+                list.add("+ " + (level * 1.5) + "% 発射体ダメージ");
             }
             case INT -> {
-                list.add("+ " + (level * 0.1) + " 秒CD短縮");
-                list.add("+ " + (level * 5) + " 最大マナ");
+                list.add("+ " + (level * 0.1) + "% CD短縮");
+                list.add("+ " + (level * 2) + "% 最大マナ");
             }
             case AGI -> {
                 list.add("+ " + (level * 0.2) + "% 会心率");

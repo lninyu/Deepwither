@@ -19,6 +19,7 @@ import com.lunar_prototype.deepwither.layer_move.LayerSignListener;
 import com.lunar_prototype.deepwither.listeners.PvPWorldListener;
 import com.lunar_prototype.deepwither.loot.LootChestListener;
 import com.lunar_prototype.deepwither.loot.LootChestManager;
+import com.lunar_prototype.deepwither.mythic.ManaShieldMechanic;
 import com.lunar_prototype.deepwither.outpost.OutpostConfig;
 import com.lunar_prototype.deepwither.outpost.OutpostDamageListener;
 import com.lunar_prototype.deepwither.outpost.OutpostManager;
@@ -341,6 +342,11 @@ public final class  Deepwither extends JavaPlugin {
                 if(event.getMechanicName().equalsIgnoreCase("CustomHPDamage"))	{
                     event.register(new CustomHPDamageMechanic(event.getConfig()));
                     getLogger().info("-- Registered CustomHPDamage mechanic!");
+                }
+
+                if (event.getMechanicName().equalsIgnoreCase("manaShield")) {
+                    event.register(new ManaShieldMechanic(event.getConfig()));
+                    getLogger().info("-- Registered manaShield mechanic!");
                 }
             }
         },this);

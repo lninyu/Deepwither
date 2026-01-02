@@ -244,27 +244,29 @@ public class StatManager {
                 int points = attr.getAllocated(type);
                 switch (type) {
                     case STR -> {
-                        double val = total.getFlat(StatType.ATTACK_DAMAGE);
-                        total.setFlat(StatType.ATTACK_DAMAGE, val + points * 2.0);
+                        double currentPercent = total.getPercent(StatType.ATTACK_DAMAGE);
+                        total.setPercent(StatType.ATTACK_DAMAGE, currentPercent + (points * 1.0));
                     }
                     case VIT -> {
-                        double val = total.getFlat(StatType.MAX_HEALTH);
-                        total.setFlat(StatType.MAX_HEALTH, val + points * 2.0);
-                        double defval = total.getFlat(StatType.DEFENSE);
-                        total.setFlat(StatType.DEFENSE, defval + points * 1.0);
+                        // 最大体力と防御力を乗算に
+                        double hpPercent = total.getPercent(StatType.MAX_HEALTH);
+                        total.setPercent(StatType.MAX_HEALTH, hpPercent + (points * 1.0));
+                        double defPercent = total.getPercent(StatType.DEFENSE);
+                        total.setPercent(StatType.DEFENSE, defPercent + (points * 0.5));
                     }
                     case MND -> {
                         double val = total.getFlat(StatType.CRIT_DAMAGE);
                         total.setFlat(StatType.CRIT_DAMAGE, val + points * 1.5);
-                        double pval = total.getFlat(StatType.PROJECTILE_DAMAGE);
-                        total.setFlat(StatType.PROJECTILE_DAMAGE, pval + points * 2);
+
+                        double pDmgPercent = total.getPercent(StatType.PROJECTILE_DAMAGE);
+                        total.setPercent(StatType.PROJECTILE_DAMAGE, pDmgPercent + (points * 1.5));
                     }
                     case INT -> {
                         double cdVal = total.getFlat(StatType.COOLDOWN_REDUCTION);
                         total.setFlat(StatType.COOLDOWN_REDUCTION, cdVal + points * 0.1);
 
-                        double manaVal = total.getFlat(StatType.MAX_MANA);
-                        total.setFlat(StatType.MAX_MANA, manaVal + points * 5.0);
+                        double manaPercent = total.getPercent(StatType.MAX_MANA);
+                        total.setPercent(StatType.MAX_MANA, manaPercent + (points * 2.0));
                     }
                     case AGI -> {
                         // クリティカルチャンスの計算はそのまま (AGI 1ポイントあたり 0.2%上昇)
