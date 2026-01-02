@@ -1,12 +1,14 @@
-<p align="center">
-  <h1 align="center">Deepwither</h1>
-  <img src="https://img.shields.io/badge/License-GPL%20v3-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/Version-Latest-green.svg" alt="Latest Version">
-  <img src="https://img.shields.io/badge/Platform-Paper%20/%20Spigot-orange.svg" alt="Platform">
-  <br />
-  <br />
-  <b>RuskLaboが開発・運用している組織向けのマインクラフトサーバープラグイン</b>
-</p>
+<div align="center">
+
+# Deepwither
+
+![License](https://img.shields.io/badge/License-GPL%20v3-blue.svg)
+![Latest Version](https://img.shields.io/badge/Version-Latest-green.svg)
+![Platform](https://img.shields.io/badge/Platform-Paper%20/%20Spigot-orange.svg)
+
+**RuskLaboが開発・運用している組織向けのマインクラフトサーバープラグイン**
+
+</div>
 
 ---
 
