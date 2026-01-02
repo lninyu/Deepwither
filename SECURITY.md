@@ -16,7 +16,7 @@ Deepwitherは組織用プラグインとしての性質上、基本的に**最�
 ### 1. 報告窓口
 公開のIssueやプルリクエストには書き込まず、以下のいずれかの方法でご連絡ください。
 * **GitHub Security Advisory:** [New Report](https://github.com/RuskServer/Deepwither/security/advisories/new) (推奨)
-* **連絡先:** 組織の管理担当者（Lunar_prototype）まで
+* **連絡先:** 組織の管理担当者（RuskLabo）まで
 
 ### 2. 報告内容
 可能であれば、以下の情報を含めていただけますとスムーズな確認が可能です。
