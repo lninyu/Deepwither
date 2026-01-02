@@ -7,6 +7,7 @@ import io.lumine.mythic.api.config.MythicLineConfig;
 import io.lumine.mythic.api.skills.ITargetedEntitySkill;
 import io.lumine.mythic.api.skills.SkillMetadata;
 import io.lumine.mythic.api.skills.SkillResult;
+import org.bukkit.Bukkit;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.entity.LivingEntity;
@@ -39,21 +40,28 @@ public class ManaShieldMechanic implements ITargetedEntitySkill {
         mana.consume(cost);
 
         // 3. 衝撃吸収量の計算
-        // 目標: マナ1000で20ハート(内部値40.0)
+        // 設定値
+        double targetMaxMana = 1000.0;
+        double maxAbsorption = 40.0; // 20ハート
+        double minAbsorption = 2.0;  // 1ハート (最低値の追加)
+
         // 計算式: (maxMana / 1000.0) * 40.0
-        double absorptionAmount = (maxMana / 1000.0) * 40.0;
+        double absorptionAmount = (maxMana / targetMaxMana) * maxAbsorption;
+
+        // --- 範囲制限 (Clamping) ---
 
         // 上限 20ハート (40.0) に制限
-        if (absorptionAmount > 40.0) {
-            absorptionAmount = 40.0;
+        if (absorptionAmount > maxAbsorption) {
+            absorptionAmount = maxAbsorption;
         }
 
-        // 4. 衝撃吸収の付与 (既存のものに上書き/リセット)
-        LivingEntity le = (LivingEntity) player;
-        double currentAbsorption = le.getAbsorptionAmount();
+        // 下限 1ハート (2.0) を保証
+        if (absorptionAmount < minAbsorption) {
+            absorptionAmount = minAbsorption;
+        }
 
-        // 既存の数値より高い場合、または完全に上書きする場合
-        le.setAbsorptionAmount(absorptionAmount);
+        // 適用
+        player.setAbsorptionAmount(absorptionAmount);
 
         return SkillResult.SUCCESS;
     }

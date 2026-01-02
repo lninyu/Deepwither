@@ -47,8 +47,6 @@ public class DamageManager implements Listener {
     private final Map<UUID, Long> lastSpecialAttackTime = new HashMap<>(); // Key: Attacker UUID
 
     // 盾のクールダウン (ms) - 連続ブロック防止用など
-    private static final long SHIELD_COOLDOWN_MS = 500;
-    private final Map<UUID, Long> lastShieldBlockTime = new HashMap<>();
     private final PlayerSettingsManager settingsManager; // ★追加
 
     public DamageManager(StatManager statManager, PlayerSettingsManager settingsManager) {
