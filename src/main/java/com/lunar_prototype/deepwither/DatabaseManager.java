@@ -1,15 +1,20 @@
 package com.lunar_prototype.deepwither;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.lunar_prototype.deepwither.util.LocalDateAdapter;
 import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
 import java.lang.reflect.Type;
 import java.sql.*;
+import java.time.LocalDate;
 
 public class DatabaseManager {
     private final Connection connection;
-    private final Gson gson = new Gson();
+    private final Gson gson = new GsonBuilder()
+            .registerTypeAdapter(LocalDate.class, new LocalDateAdapter()) // これを追加
+            .create();
 
     public DatabaseManager(JavaPlugin plugin) throws SQLException {
         File dbFile = new File(plugin.getDataFolder(), "database.db");
