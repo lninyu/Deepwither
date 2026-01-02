@@ -1,14 +1,14 @@
-# Deepwither
-
 <p align="center">
+  <h1 align="center">Deepwither</h1>
   <img src="https://img.shields.io/badge/License-GPL%20v3-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Version-Latest-green.svg" alt="Latest Version">
   <img src="https://img.shields.io/badge/Platform-Paper%20/%20Spigot-orange.svg" alt="Platform">
+  <br />
+  <br />
+  <b>RuskLaboが開発・運用している組織向けのマインクラフトサーバープラグイン</b>
 </p>
 
 ---
-
-Deepwitherは、**RuskLabo**が開発・運用している組織向けのマインクラフトサーバープラグインです。
 
 ## 🚀 ダウンロード (Downloads)
 
@@ -25,8 +25,6 @@ Deepwitherは、**RuskLabo**が開発・運用している組織向けのマイ�
 * **個別対応:** 導入支援、設定代行、およびDM等でのトラブルシューティングは行っておりません。
 * **自己責任:** 本プラグインの利用により生じた損害について、開発者は一切の責任を負いません。
 
----
-
 ## 🐛 バグ・脆弱性の報告 (Reporting Issues)
 
 プロジェクトの品質向上のため、問題の報告は歓迎いたします。
@@ -36,7 +34,7 @@ Deepwitherは、**RuskLabo**が開発・運用している組織向けのマイ�
 ※個別の返信や修正時期の確約はいたしかねますのでご了承ください。
 
 ### 脆弱性の報告
-セキュリティ上の重大な欠陥（脆弱性）を発見された場合は、Issueに公開せず、まずは[リポジトリのSecurityタブ](https://github.com/RuskServer/Deepwither/security) または組織の連絡先まで秘匿情報としてお知らせください。
+セキュリティ上の重大な欠陥（脆弱性）を発見された場合は、Issueに公開せず、[リポジトリのSecurityタブ](https://github.com/RuskServer/Deepwither/security) からお知らせください。
 
 ---
 
@@ -45,4 +43,6 @@ Deepwitherは、**RuskLabo**が開発・運用している組織向けのマイ�
 このソフトウェアは **GNU GPL v3** ライセンスのもとで公開されています。
 詳細は [LICENSE](LICENSE) ファイルをご確認ください。
 
-&copy; 2025-2026 RuskLabo (Lunar_prototype)
+<p align="center">
+  &copy; 2025-2026 RuskLabo (Lunar_prototype)
+</p>
