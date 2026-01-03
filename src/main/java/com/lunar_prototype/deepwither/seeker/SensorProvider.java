@@ -42,7 +42,7 @@ public class SensorProvider {
         context.environment.nearby_allies = scanAllies(entity, nearby);
 
         // 最寄りの遮蔽物を計算
-        context.environment.nearest_cover = findNearestCover(entity, context.environment.nearby_enemies);
+        context.environment.nearest_cover = findNearestCover(entity,getEnemyLocation(entity));
 
         // 3. 性格パラメータ (固定値、あるいはMobの設定から取得)
         context.personality = new BanditContext.Personality();

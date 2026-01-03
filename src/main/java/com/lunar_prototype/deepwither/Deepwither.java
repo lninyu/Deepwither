@@ -245,7 +245,7 @@ public final class  Deepwither extends JavaPlugin {
         }
 
         try {
-            aiEngine = new SeekerAIEngine(this, getDataFolder() + "/model.onnx");
+            aiEngine = new SeekerAIEngine(this);
         } catch (Exception e) {
             getLogger().severe("AI Engine起動失敗: " + e.getMessage());
         }
