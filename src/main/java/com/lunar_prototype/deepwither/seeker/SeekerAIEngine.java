@@ -21,7 +21,7 @@ public class SeekerAIEngine {
     public SeekerAIEngine(JavaPlugin plugin, String modelPath) throws Exception {
         this.plugin = plugin;
         this.sensorProvider = new SensorProvider();
-        this.llmConnector = new LLMConnector(modelPath); // ONNXセッションの初期化
+        this.llmConnector = new LLMConnector(plugin,modelPath); // ONNXセッションの初期化
         this.actuator = new Actuator();
     }
 
