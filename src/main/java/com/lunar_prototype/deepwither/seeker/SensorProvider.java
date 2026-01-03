@@ -100,7 +100,11 @@ public class SensorProvider {
 
     // SeekerAIEngineから座標取得のために呼ばれる
     public Location findNearestCoverLocation(ActiveMob activeMob) {
-        Mob self = (Mob) activeMob.getEntity();
+        // MythicMobsのエンティティからBukkitのエンティティを取得し、それをMobにキャストする
+        if (!(activeMob.getEntity().getBukkitEntity() instanceof Mob)) {
+            return null; // Mob（クリーチャー）でない場合は処理を中断
+        }
+        Mob self = (Mob) activeMob.getEntity().getBukkitEntity();
         Block coverBlock = findBestCoverBlock(self);
 
         if (coverBlock == null) return null;
