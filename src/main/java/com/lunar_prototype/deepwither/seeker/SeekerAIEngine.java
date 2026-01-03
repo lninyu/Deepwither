@@ -40,6 +40,14 @@ public class SeekerAIEngine {
         // 過去の状態(brain) + 現在の状況(context) => 新しい行動(decision) & 脳の更新
         BanditDecision decision = liquidEngine.think(context, brain);
 
+        // --- ログ出力セクション ---
+        String mobName = activeMob.getType().getInternalName();
+        String uuidShort = activeMob.getUniqueId().toString().substring(0, 4);
+
+        // コンソールへの詳細ログ (開発時のみ推奨)
+        System.out.println(String.format("[%s-%s] Action: %s | %s",
+                mobName, uuidShort, decision.decision.action_type, decision.reasoning));
+
         // 4. 行動実行
         if (activeMob.getEntity() != null && !activeMob.getEntity().isDead()) {
             actuator.execute(activeMob, decision, nearestCover);
