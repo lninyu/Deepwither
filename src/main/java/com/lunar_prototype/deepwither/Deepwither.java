@@ -31,13 +31,16 @@ import com.lunar_prototype.deepwither.profiler.CombatAnalyzer;
 import com.lunar_prototype.deepwither.quest.*;
 import com.lunar_prototype.deepwither.raidboss.RaidBossListener;
 import com.lunar_prototype.deepwither.raidboss.RaidBossManager;
+import com.lunar_prototype.deepwither.seeker.SeekerAIEngine;
 import com.lunar_prototype.deepwither.town.TownBurstManager;
 import com.lunar_prototype.deepwither.tutorial.TutorialController;
 import com.lunar_prototype.deepwither.util.IManager;
 import com.lunar_prototype.deepwither.util.MythicMobSafeZoneManager;
 import com.vexsoftware.votifier.model.VotifierEvent;
+import io.lumine.mythic.bukkit.MythicBukkit;
 import io.lumine.mythic.bukkit.events.MythicDropLoadEvent;
 import io.lumine.mythic.bukkit.events.MythicMechanicLoadEvent;
+import io.lumine.mythic.core.mobs.ActiveMob;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -125,6 +128,7 @@ public final class  Deepwither extends JavaPlugin {
     private PlayerQuestDataStore playerQuestDataStore;
     private RaidBossManager raidBossManager;
     private LayerMoveManager layerMoveManager;
+    private SeekerAIEngine aiEngine;
     private static Economy econ = null;
     private final java.util.Random random = new java.util.Random();
     private OutpostManager outpostManager;
@@ -238,6 +242,12 @@ public final class  Deepwither extends JavaPlugin {
         } catch (Exception e) {
             getLogger().severe("Database initialization failed!");
             getServer().getPluginManager().disablePlugin(this);
+        }
+
+        try {
+            aiEngine = new SeekerAIEngine(this);
+        } catch (Exception e) {
+            getLogger().severe("AI Engine起動失敗: " + e.getMessage());
         }
 
         statManager = new StatManager();
@@ -410,6 +420,18 @@ public final class  Deepwither extends JavaPlugin {
         } catch (IOException e) {
             e.printStackTrace();
         }
+
+        // 40Tごとに全ActiveMobをチェックして、特定条件のMobに思考させる
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (ActiveMob am : MythicBukkit.inst().getMobManager().getActiveMobs()) {
+                    if (am.getMobType().contains("bandit")) { // 名前にbanditを含む場合など
+                        aiEngine.tick(am);
+                    }
+                }
+            }
+        }.runTaskTimer(this, 0, 40);
         // リスナー登録
         getServer().getPluginManager().registerEvents(new ItemDurabilityFix(),this);
         getServer().getPluginManager().registerEvents(new AttributeGui(), this);
