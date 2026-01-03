@@ -17,7 +17,7 @@ public class SeekerAIEngine {
     // 個体ごとの脳の状態を保持するメモリ (永続性を持たせるため)
     private final Map<UUID, LiquidBrain> brainStorage = new HashMap<>();
 
-    public SeekerAIEngine(JavaPlugin plugin) {
+    public SeekerAIEngine() {
         this.sensorProvider = new SensorProvider();
         this.liquidEngine = new LiquidCombatEngine();
         this.actuator = new Actuator();
