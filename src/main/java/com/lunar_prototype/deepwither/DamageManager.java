@@ -3,10 +3,7 @@ package com.lunar_prototype.deepwither;
 import com.lunar_prototype.deepwither.api.event.onPlayerRecevingDamageEvent;
 import io.lumine.mythic.bukkit.MythicBukkit;
 import io.lumine.mythic.bukkit.events.MythicDamageEvent;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.Particle;
-import org.bukkit.Sound;
+import org.bukkit.*;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -354,8 +351,35 @@ public class DamageManager implements Listener {
 
         if (isCrit) {
             sendLog(attacker, PlayerSettingsManager.SettingType.SHOW_SPECIAL_LOG, "§6§lクリティカル！ §c+" + Math.round(finalDamage));
-            attacker.getWorld().spawnParticle(Particle.CRIT, targetLiving.getLocation().add(0, 1, 0), 10, 0.3, 0.3, 0.3, 0.1);
-            attacker.getWorld().playSound(attacker.getLocation(), Sound.ENTITY_PLAYER_ATTACK_CRIT, 1f, 1f);
+            Location hitLoc = targetLiving.getLocation().add(0, 1.2, 0); // ターゲットの胸の高さ
+            World world = hitLoc.getWorld();
+
+            // --- 視覚エフェクト: 重層的なパーティクル ---
+
+            // 1. 強烈な閃光 (中心)
+            world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0);
+
+            // 2. 衝撃波 (周囲に広がる空気の歪み)
+            world.spawnParticle(Particle.SONIC_BOOM, hitLoc, 1, 0, 0, 0, 0);
+
+            // 3. 飛び散る火花と血しぶきのような演出 (LAVAとCRIT)
+            world.spawnParticle(Particle.LAVA, hitLoc, 8, 0.4, 0.4, 0.4, 0.1);
+            world.spawnParticle(Particle.CRIT, hitLoc, 30, 0.5, 0.5, 0.5, 0.5);
+
+            // 4. 大きな煙の広がり
+            world.spawnParticle(Particle.LARGE_SMOKE, hitLoc, 15, 0.2, 0.2, 0.2, 0.05);
+
+            // --- 音響エフェクト: 複数の音を重ねて重厚感を出す ---
+
+            // 通常のクリティカル音（高ピッチ）
+            world.playSound(hitLoc, Sound.ENTITY_PLAYER_ATTACK_CRIT, 1.2f, 0.8f);
+
+            // 鈍い衝撃音（低ピッチの金床や爆発）
+            world.playSound(hitLoc, Sound.BLOCK_ANVIL_LAND, 0.6f, 0.5f);
+            world.playSound(hitLoc, Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 0.8f, 0.6f);
+
+            // 斬撃の重み（鋭い音）
+            world.playSound(hitLoc, Sound.ITEM_TRIDENT_HIT, 1.0f, 0.7f);
         } else if (isProjectile) {
             sendLog(attacker, PlayerSettingsManager.SettingType.SHOW_GIVEN_DAMAGE, "§7遠距離命中 §c+" + Math.round(finalDamage) + " §e[" + String.format("%.0f%%", distMult * 100) + "]");
         }
@@ -494,7 +518,7 @@ public class DamageManager implements Listener {
     private double handleMobDamageLogic(LivingEntity attacker, double damage, Player target) {
         if (rollChance(20)) {
             damage *= 1.5;
-            target.sendMessage("§4§l敵のクリティカル！");
+            sendLog(target,PlayerSettingsManager.SettingType.SHOW_TAKEN_DAMAGE,"§4§l敵のクリティカル！");
             target.getWorld().playSound(target.getLocation(), Sound.ENTITY_PLAYER_ATTACK_CRIT, 1f, 0.8f);
         }
         return damage;

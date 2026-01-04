@@ -343,7 +343,7 @@ public final class  Deepwither extends JavaPlugin {
 
         Bukkit.getPluginManager().registerEvents(new MobKillListener(levelManager, getConfig(),OutpostManager.getInstance(),partyManager,boosterManager), this);
         getServer().getPluginManager().registerEvents(new SafeZoneListener(this),this);
-        getServer().getPluginManager().registerEvents(new PlayerAnimationListener(),this);
+        getServer().getPluginManager().registerEvents(new AnimationListener(),this);
         getServer().getPluginManager().registerEvents(new BackpackListener(this, backpackManager), this);
         this.getCommand("status").setExecutor(new StatusCommand(levelManager, statManager,creditManager,professionManager));
         getServer().getPluginManager().registerEvents(new OutpostRegionListener(OutpostManager.getInstance()),this);
