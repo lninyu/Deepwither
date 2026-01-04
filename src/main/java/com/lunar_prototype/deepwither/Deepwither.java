@@ -305,7 +305,6 @@ public final class  Deepwither extends JavaPlugin {
         mythicMobSafeZoneManager = new MythicMobSafeZoneManager(this);
         professionManager = new ProfessionManager(this,professionDatabase);
         partyManager = new PartyManager();
-        boosterManager = new BoosterManager();
         this.partyAPI = new DeepwitherPartyAPI(partyManager); // ★ 初期化
         this.craftingManager = new CraftingManager(this);
         this.craftingGUI = new CraftingGUI(this);
@@ -507,6 +506,7 @@ public final class  Deepwither extends JavaPlugin {
         this.levelManager = register(LevelManager.class, new LevelManager(databaseManager));
         this.skilltreeManager = register(SkilltreeManager.class, new SkilltreeManager(databaseManager, this));
         this.professionDatabase = register(ProfessionDatabase.class,new ProfessionDatabase(this,databaseManager));
+        this.boosterManager = register(BoosterManager.class,new BoosterManager(databaseManager));
         // 新しくSQLite対応させたデータストア (引数にdatabaseManagerを渡す)
         this.fileDailyTaskDataStore = register(FileDailyTaskDataStore.class,
                 new FileDailyTaskDataStore(this, databaseManager));

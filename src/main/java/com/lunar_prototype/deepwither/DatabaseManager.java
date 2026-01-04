@@ -73,6 +73,13 @@ public class DatabaseManager {
                     experience BIGINT DEFAULT 0,
                     PRIMARY KEY (player_id, profession_type)
                 )""");
+
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS player_boosters (
+                    uuid TEXT PRIMARY KEY,
+                    multiplier REAL,
+                    end_time INTEGER
+                )""");
         }
     }
 
