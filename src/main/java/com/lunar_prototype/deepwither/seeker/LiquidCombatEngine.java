@@ -8,6 +8,8 @@ import java.util.Comparator;
 
 public class LiquidCombatEngine {
 
+    private Vector lastPlayerVelocity = new Vector(0, 0, 0);
+
     /**
      * コンテキストと脳の状態を受け取り、意思決定を行う
      */
@@ -43,7 +45,7 @@ public class LiquidCombatEngine {
 
             // --- 予測モデルの適用 (0.5秒後を予測) ---
             Vector myFuture = bukkitEntity.getLocation().toVector().add(bukkitEntity.getVelocity().multiply(10));
-            Vector targetFuture = predictFutureLocation(targetPlayer, 0.5);
+            Vector targetFuture = predictFutureLocationImproved(targetPlayer, 0.5);
             predictedDist = myFuture.distance(targetFuture);
         }
 
@@ -145,17 +147,32 @@ public class LiquidCombatEngine {
     }
 
     /**
-     * 相手の現在速度と方向から、指定秒数後の予測位置を算出する
+     * カルマンフィルタの概念を応用した予測モデル
      */
-    private Vector predictFutureLocation(Player player, double seconds) {
-        // 現在の位置ベクトル
+    private Vector predictFutureLocationImproved(Player player, double seconds) {
         Vector currentLoc = player.getLocation().toVector();
-        // 速度ベクトル（1秒あたりの移動量）に時間をかける
-        Vector velocity = player.getVelocity();
+        Vector currentVelocity = player.getVelocity();
 
-        // プレイヤーの速度が 0 の場合、Velocity が正確に取れないことがあるため
-        // 必要に応じて前回の座標との差分をとるロジックを挟むとより正確になります
-        return currentLoc.add(velocity.multiply(seconds * 20)); // 20 ticks = 1s
+        // 1. 加速度（変化量）の算出
+        Vector acceleration = currentVelocity.clone().subtract(lastPlayerVelocity);
+        lastPlayerVelocity = currentVelocity.clone();
+
+        // 2. 「動きの安定性」をスコア化 (カルマンゲインの代用)
+        // 急激な方向転換をしている時は 0 に近づき、安定している時は 1 に近づく
+        double stability = 1.0 / (1.0 + acceleration.lengthSquared() * 5.0);
+        stability = Math.max(0.2, stability); // 最低限の予測は残す
+
+        // 3. 予測計算
+        // 未来位置 = 現在地 + (速度 * 時間) + (0.5 * 加速度 * 時間^2)
+        double ticks = seconds * 20;
+        Vector velocityComponent = currentVelocity.clone().multiply(ticks);
+        Vector accelerationComponent = acceleration.clone().multiply(0.5 * Math.pow(ticks, 2));
+
+        // 安定度(stability)に応じて、加速度成分をどれだけ信じるか調整
+        // 不規則な動き（stability低）の時は、現在地に比重を置く
+        Vector predictedMovement = velocityComponent.add(accelerationComponent).multiply(stability);
+
+        return currentLoc.add(predictedMovement);
     }
 
     private BanditDecision resolveDecision(LiquidBrain brain, BanditContext context, double enemyDist) {
