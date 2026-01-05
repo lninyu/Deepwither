@@ -3,6 +3,7 @@ package com.lunar_prototype.deepwither;
 import com.lunar_prototype.deepwither.api.DeepwitherPartyAPI;
 import com.lunar_prototype.deepwither.booster.BoosterManager;
 import com.lunar_prototype.deepwither.command.BoosterCommand;
+import com.lunar_prototype.deepwither.command.MarketCommand;
 import com.lunar_prototype.deepwither.command.PvPCommand;
 import com.lunar_prototype.deepwither.command.ResetGUICommand;
 import com.lunar_prototype.deepwither.companion.CompanionCommand;
@@ -22,6 +23,9 @@ import com.lunar_prototype.deepwither.listeners.ItemGlowHandler;
 import com.lunar_prototype.deepwither.listeners.PvPWorldListener;
 import com.lunar_prototype.deepwither.loot.LootChestListener;
 import com.lunar_prototype.deepwither.loot.LootChestManager;
+import com.lunar_prototype.deepwither.market.GlobalMarketManager;
+import com.lunar_prototype.deepwither.market.MarketGui;
+import com.lunar_prototype.deepwither.market.MarketSearchHandler;
 import com.lunar_prototype.deepwither.mythic.ManaShieldMechanic;
 import com.lunar_prototype.deepwither.outpost.OutpostConfig;
 import com.lunar_prototype.deepwither.outpost.OutpostDamageListener;
@@ -128,6 +132,9 @@ public final class  Deepwither extends JavaPlugin {
     private FishingManager fishingManager;
     private RaidBossManager raidBossManager;
     private LayerMoveManager layerMoveManager;
+    private GlobalMarketManager globalMarketManager;
+    private MarketSearchHandler marketSearchHandler;
+    private MarketGui marketGui;
     private SeekerAIEngine aiEngine;
     private static Economy econ = null;
     private final java.util.Random random = new java.util.Random();
@@ -204,6 +211,8 @@ public final class  Deepwither extends JavaPlugin {
     public MobKillListener getMobKillListener(){
         return mobKillListener;
     }
+    public MarketSearchHandler getMarketSearchHandler() {return marketSearchHandler;}
+
 
 
 
@@ -328,6 +337,10 @@ public final class  Deepwither extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new TraderGUI(), this);
         getServer().getPluginManager().registerEvents(new SellGUI(), this);
         getServer().getPluginManager().registerEvents(new TutorialController(this), this);
+
+
+        marketGui = new MarketGui(globalMarketManager);
+        marketSearchHandler = new MarketSearchHandler(this,marketGui);
 
         new RegenTask(statManager).start(this);
         guildQuestManager.startup();
@@ -473,6 +486,9 @@ public final class  Deepwither extends JavaPlugin {
         ResetGUI resetGUI = new ResetGUI(this);
         getCommand("resetstatusgui").setExecutor(new ResetGUICommand(resetGUI));
         getCommand("pvp").setExecutor(new PvPCommand());
+        MarketCommand marketCmd = new MarketCommand(this, globalMarketManager, marketGui);
+        getCommand("market").setExecutor(marketCmd);
+        getCommand("market").setTabCompleter(marketCmd);
         getServer().getPluginManager().registerEvents(new PvPWorldListener(), this);
         getServer().getPluginManager().registerEvents(new ItemGlowHandler(this),this);
     }
@@ -506,6 +522,7 @@ public final class  Deepwither extends JavaPlugin {
         this.skilltreeManager = register(SkilltreeManager.class, new SkilltreeManager(databaseManager, this));
         this.professionDatabase = register(ProfessionDatabase.class,new ProfessionDatabase(this,databaseManager));
         this.boosterManager = register(BoosterManager.class,new BoosterManager(databaseManager));
+        this.globalMarketManager = register(GlobalMarketManager.class,new GlobalMarketManager(this,databaseManager));
         // 新しくSQLite対応させたデータストア (引数にdatabaseManagerを渡す)
         this.fileDailyTaskDataStore = register(FileDailyTaskDataStore.class,
                 new FileDailyTaskDataStore(this, databaseManager));

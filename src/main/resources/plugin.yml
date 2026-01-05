@@ -65,3 +65,7 @@ commands:
   pvp:
     description: PvPワールドへの往復テレポート
     usage: /pvp
+  market:
+    description: グローバルマーケットを開きます
+    usage: /market [sell|collect|help]
+    aliases: [ ah, auction ]

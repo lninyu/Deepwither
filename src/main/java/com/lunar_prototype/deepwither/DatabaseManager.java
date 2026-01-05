@@ -80,6 +80,21 @@ public class DatabaseManager {
                     multiplier REAL,
                     end_time INTEGER
                 )""");
+
+            stmt.executeUpdate("""
+                CREATE TABLE IF NOT EXISTS market_listings (
+                    id TEXT PRIMARY KEY,
+                    seller_uuid TEXT,
+                    item_stack TEXT,
+                    price REAL,
+                    listed_date INTEGER
+                )""");
+
+            stmt.executeUpdate("""
+                CREATE TABLE IF NOT EXISTS market_earnings (
+                    uuid TEXT PRIMARY KEY,
+                    amount REAL
+                )""");
         }
     }
 
