@@ -1,5 +1,8 @@
 package com.lunar_prototype.deepwither;
 
+import org.bukkit.ChatColor;
+import org.bukkit.Sound;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.event.EventHandler;
@@ -12,40 +15,50 @@ public class ItemDurabilityFix implements Listener {
 
     /**
      * アイテムの耐久値がゼロになり破壊される瞬間だけをキャンセルします。
-     * 通常の耐久値の減少はそのまま行われます。
-     *
-     * @param e プレイヤーがアイテムにダメージを与えたときに発生するイベント
      */
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerItemDamage(PlayerItemDamageEvent e) {
         ItemStack item = e.getItem();
         ItemMeta meta = item.getItemMeta();
 
-        if (meta == null || !(meta instanceof Damageable damageable)) {
-            return; // 耐久値を持たないアイテムは無視
+        // Damageableインターフェースを実装していないアイテム（耐久値がないもの）は無視
+        if (!(meta instanceof Damageable damageable)) {
+            return;
         }
 
-        int damageToApply = e.getDamage(); // 今回増えるダメージ量
-        int currentDamage = damageable.getDamage(); // 現在の蓄積ダメージ量
-        int maxDurability = item.getType().getMaxDurability(); // アイテムの最大耐久値（これを超えると壊れる）
+        // ★修正ポイント: コンポーネントによる変動に対応するため、メタデータから最大耐久値を取得
+        // hasMaxDamage() でカスタム最大耐久値が設定されているか確認可能
+        if (!damageable.hasMaxDamage()) {
+            // マテリアル自体に耐久値がない場合（ブロックなど）
+            if (item.getType().getMaxDurability() <= 0) return;
+        }
 
-        // 【修正】: 「現在のダメージ + 今回受けるダメージ」が最大耐久値以上になるかチェック
+        // 現在の「受けたダメージ量」を取得
+        int currentDamage = damageable.getDamage();
+        // 今回追加されるダメージ量
+        int damageToApply = e.getDamage();
+
+        // ★修正ポイント: アイテムメタデータ(コンポーネント)に基づいた最大耐久値を取得
+        // 1.20.5+ では getMaxDamage() がコンポーネントの値を正しく返します
+        int maxDurability = damageable.getMaxDamage();
+
+        // 「現在のダメージ + 今回受けるダメージ」が最大耐久値以上になるかチェック
         if (currentDamage + damageToApply >= maxDurability) {
 
-            // ★ 破壊されるためイベントをキャンセル
+            // イベントをキャンセルして破壊を防ぐ
             e.setCancelled(true);
 
-            // 【修正箇所】: 耐久値を「最大値 - 1」に設定する
-            // setDamageは「受けたダメージ」を設定するため、大きい数字ほど壊れかけになります。
+            // 耐久値を「最大値 - 1」に固定（壊れる寸前の状態）
             damageable.setDamage(maxDurability - 1);
-
             item.setItemMeta(damageable);
 
-            // 表示名を取得（名前がない場合はアイテムタイプ名を使用）
-            String itemName = (meta.hasDisplayName()) ? meta.getDisplayName() : item.getType().name();
+            // プレイヤーへの通知
+            Player player = e.getPlayer();
+            String displayName = meta.hasDisplayName() ? meta.getDisplayName() : item.getType().name();
 
-            // プレイヤーにメッセージを送信
-            e.getPlayer().sendMessage("§cあなたの " + itemName + " §cの耐久値が限界に達しました！すぐに修理が必要です。");
+            player.sendMessage(ChatColor.RED + "⚠ " + displayName + " の耐久値が限界です！修理してください。");
+            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_BREAK, 0.6f, 0.8f);
+            player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_LAND, 0.4f, 1.2f);
         }
     }
 }

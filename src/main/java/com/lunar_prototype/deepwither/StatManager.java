@@ -442,31 +442,35 @@ public class StatManager {
     }
 
     private static boolean shouldReadStats(ItemStack item) {
-        if (item.getType().isAir()) {
+        // 1. 空気チェック
+        if (item == null || item.getType().isAir()) {
             return false;
         }
 
         ItemMeta meta = item.getItemMeta();
+        if (meta == null) return true;
 
-        // 【修正点】アイテムが「耐久値を持つ」アイテムであるかを確認する
-        if (item.getType().getMaxDurability() > 0) {
+        // 2. 耐久値コンポーネントを持っているか確認 (Damageable)
+        if (meta instanceof Damageable damageable) {
 
-            // 耐久値を持つアイテムでのみ Damageable をチェック
-            if (meta instanceof Damageable damageable) {
+            // 3. コンポーネントに基づいた最大耐久値を取得
+            // マテリアル固有の値ではなく、アイテム個別の最大値を取得します
+            int maxDurability = damageable.getMaxDamage();
 
-                int maxDurability = item.getType().getMaxDurability();
+            // 最大耐久値が設定されているアイテム（剣、ツール、防具など）のみ判定
+            if (maxDurability > 0) {
                 int currentDamage = damageable.getDamage();
-
                 int remainingDurability = maxDurability - currentDamage;
 
-                // 残り耐久値が 1 でないことを確認
+                // 4. 残り耐久値が 1 以下の場合は読み込み（ステータス反映）をスキップ
+                // ItemDurabilityFix で「壊れる寸前」として保持されているアイテムを対象外にします
                 if (remainingDurability <= 1) {
-                    // 耐久値が1以下の場合、読み込みをスキップ
                     return false;
                 }
             }
         }
-        // Durabilityが0のアイテム（Stickなど）、または耐久値が2以上のアイテムは読み込みを許可
+
+        // 耐久値が存在しないアイテム、または耐久値が十分にあるアイテムは許可
         return true;
     }
 }
