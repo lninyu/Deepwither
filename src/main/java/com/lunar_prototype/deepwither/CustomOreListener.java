@@ -4,12 +4,15 @@ import com.lunar_prototype.deepwither.profession.ProfessionManager; // 追加
 import com.lunar_prototype.deepwither.profession.ProfessionType;    // 追加
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.block.Block;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockDamageEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -25,6 +28,38 @@ public class CustomOreListener implements Listener {
 
     public CustomOreListener(Deepwither plugin) {
         this.plugin = plugin;
+    }
+
+    /**
+     * ブロックを叩き始めた時にノックバック耐性を付与
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void onBlockDamage(BlockDamageEvent event) {
+        Material type = event.getBlock().getType();
+        // カスタム鉱石の設定があるか確認
+        if (plugin.getConfig().contains("ore_setting." + type.name())) {
+            setKnockbackResistance(event.getPlayer(), 1.0);
+
+            // 採掘が中断されることも考慮し、数秒後(例: 5秒後)に自動で元に戻すセーフティ
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (event.getPlayer().isOnline()) {
+                        setKnockbackResistance(event.getPlayer(), 0.0);
+                    }
+                }
+            }.runTaskLater(plugin, 100L); // 5秒
+        }
+    }
+
+    /**
+     * プレイヤーのノックバック耐性を設定するヘルパーメソッド
+     */
+    private void setKnockbackResistance(Player player, double value) {
+        AttributeInstance attr = player.getAttribute(Attribute.KNOCKBACK_RESISTANCE);
+        if (attr != null) {
+            attr.setBaseValue(value);
+        }
     }
 
     @EventHandler(ignoreCancelled = true)
