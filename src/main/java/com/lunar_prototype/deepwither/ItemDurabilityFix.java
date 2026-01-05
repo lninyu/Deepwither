@@ -26,21 +26,26 @@ public class ItemDurabilityFix implements Listener {
             return;
         }
 
-        // ★修正ポイント: コンポーネントによる変動に対応するため、メタデータから最大耐久値を取得
-        // hasMaxDamage() でカスタム最大耐久値が設定されているか確認可能
-        if (!damageable.hasMaxDamage()) {
-            // マテリアル自体に耐久値がない場合（ブロックなど）
-            if (item.getType().getMaxDurability() <= 0) return;
+        int maxDurability;
+
+        // ★修正ポイント: hasMaxDamage() をチェックして例外を回避
+        if (damageable.hasMaxDamage()) {
+            // カスタムコンポーネント（max_damage）がある場合はその値を取得
+            maxDurability = damageable.getMaxDamage();
+        } else {
+            // コンポーネントがない場合は、バニラ本来のマテリアル耐久値を取得
+            maxDurability = item.getType().getMaxDurability();
+        }
+
+        // 耐久値が設定されていないアイテム（ブロックや棒など）は処理を終了
+        if (maxDurability <= 0) {
+            return;
         }
 
         // 現在の「受けたダメージ量」を取得
         int currentDamage = damageable.getDamage();
         // 今回追加されるダメージ量
         int damageToApply = e.getDamage();
-
-        // ★修正ポイント: アイテムメタデータ(コンポーネント)に基づいた最大耐久値を取得
-        // 1.20.5+ では getMaxDamage() がコンポーネントの値を正しく返します
-        int maxDurability = damageable.getMaxDamage();
 
         // 「現在のダメージ + 今回受けるダメージ」が最大耐久値以上になるかチェック
         if (currentDamage + damageToApply >= maxDurability) {
