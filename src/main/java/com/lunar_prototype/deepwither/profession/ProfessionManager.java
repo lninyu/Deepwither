@@ -16,7 +16,7 @@ public class ProfessionManager {
     private final Map<UUID, PlayerProfessionData> cache = new ConcurrentHashMap<>();
 
     // レベル計算定数
-    private static final int BASE_EXP = 100;
+    private static final int BASE_EXP = 50;
 
     public ProfessionManager(Deepwither plugin,ProfessionDatabase db) {
         this.plugin = plugin;
@@ -97,7 +97,7 @@ public class ProfessionManager {
     }
 
     private long getExpRequiredForNextLevel(int currentLevel) {
-        return (long) (BASE_EXP * Math.pow(currentLevel, 1.2));
+        return (long) (BASE_EXP * Math.pow(currentLevel, 1.1));
     }
 
     public double getDoubleDropChance(Player player, ProfessionType type) {

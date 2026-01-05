@@ -77,18 +77,26 @@ public class CustomOreListener implements Listener {
         event.setCancelled(true);
         block.setType(Material.BEDROCK);
 
-        // ★修正: カスタムドロップ処理
-        handleCustomDrops(player, block, oreSection); // player引数を追加
+        // ★修正: レアドロップが発生したかを受け取る
+        boolean rareDropTriggered = handleCustomDrops(player, block, oreSection);
 
-        // ★追加: 採掘経験値の付与
-        // configに exp 設定があればそれを使い、なければ固定値(例:10)
-        int xpAmount = oreSection.getInt("exp", 10);
+        // 基本経験値の取得
+        int baseExp = oreSection.getInt("exp", 10);
+        int finalExp = baseExp;
 
-        Deepwither.getInstance().getLevelManager().addExp(player,xpAmount);
+        // ★追加: レアドロップボーナス (50% ~ 100% アップ)
+        if (rareDropTriggered) {
+            // 1.5倍から2.0倍のランダム倍率
+            double bonusMultiplier = 1.5 + (random.nextDouble() * 0.5);
+            finalExp = (int) (baseExp * bonusMultiplier);
 
-        // DeepwitherクラスにgetProfessionManager()を追加している前提
+            player.sendMessage(ChatColor.AQUA + "★ 希少鉱石発見！獲得経験値アップ: " + finalExp);
+        }
+
+        // 経験値付与 (finalExpを使用)
+        Deepwither.getInstance().getLevelManager().addExp(player, finalExp);
         if (Deepwither.getInstance().getProfessionManager() != null) {
-            Deepwither.getInstance().getProfessionManager().addExp(player, ProfessionType.MINING, xpAmount);
+            Deepwither.getInstance().getProfessionManager().addExp(player, ProfessionType.MINING, finalExp);
         }
 
         long respawnTicks = oreSection.getLong("respawn_time", 300) * 20L;
@@ -97,46 +105,44 @@ public class CustomOreListener implements Listener {
 
     /**
      * 確率に基づいてカスタムドロップアイテムをドロップさせる
+     * @return レアドロップ（chance < 1.0）が発生した場合は true
      */
-    private void handleCustomDrops(Player player, Block block, ConfigurationSection oreSection) {
+    private boolean handleCustomDrops(Player player, Block block, ConfigurationSection oreSection) {
         List<Map<?, ?>> dropList = oreSection.getMapList("drops");
-        if (dropList.isEmpty()) return;
+        if (dropList.isEmpty()) return false;
 
-        // ★追加: 職業マネージャーの取得
         ProfessionManager profManager = Deepwither.getInstance().getProfessionManager();
-        double doubleDropChance = 0.0;
+        double doubleDropChance = (profManager != null) ? profManager.getDoubleDropChance(player, ProfessionType.MINING) : 0.0;
 
-        if (profManager != null) {
-            // 現在のダブルドロップ確率を取得
-            doubleDropChance = profManager.getDoubleDropChance(player, ProfessionType.MINING);
-        }
+        boolean lucky = false; // レアドロップフラグ
 
         for (Map<?, ?> dropEntry : dropList) {
             String dropId = (String) dropEntry.get("item_id");
-
             double chance = 1.0;
+
             Object chanceObj = dropEntry.get("chance");
             if (chanceObj instanceof Number) {
                 chance = ((Number) chanceObj).doubleValue();
-            } else {
-                plugin.getLogger().warning("Invalid chance value for drop ID: " + dropId);
             }
 
-            // 通常のドロップ判定
+            // ドロップ判定
             if (random.nextDouble() <= chance) {
-                dropItem(block, dropId); // 通常ドロップ
+                dropItem(block, dropId);
 
-                // ★追加: ダブルドロップ判定
-                // 採掘レベルに応じた確率で、もう一度同じアイテムをドロップ
+                // ★追加: レアドロップ(chance < 1.0) かつ成功ならフラグを立てる
+                if (chance < 1.0) {
+                    lucky = true;
+                }
+
+                // ダブルドロップ判定
                 if (random.nextDouble() <= doubleDropChance) {
-                    dropItem(block, dropId); // 2個目をドロップ
-
-                    // 視覚的フィードバック (任意)
+                    dropItem(block, dropId);
                     player.sendMessage(ChatColor.GOLD + "★ ダブルドロップ！");
                     player.playSound(player.getLocation(), org.bukkit.Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.5f, 2.0f);
                 }
             }
         }
+        return lucky;
     }
 
     // ドロップ処理を共通化
