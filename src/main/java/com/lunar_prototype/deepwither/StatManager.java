@@ -1,5 +1,7 @@
 package com.lunar_prototype.deepwither;
 
+import me.lninyu.foo.KeyUtil;
+import me.lninyu.foo.LegacyUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
@@ -21,6 +23,8 @@ public class StatManager {
 
     private static final UUID ATTACK_DAMAGE_MODIFIER_ID = UUID.fromString("a3bb7af7-3c5b-4df1-a17e-cdeae1db1d32");
     private static final UUID MAX_HEALTH_MODIFIER_ID = UUID.fromString("ff5dd7e3-d781-4fee-b3d4-bfe3a5fda85d");
+    private static final NamespacedKey ATTACK_DAMAGE_ATTRIBUTE = KeyUtil.create("MMO_Attack_Damage");
+    private static final NamespacedKey MAX_HEALTH_ATTRIBUTE = KeyUtil.create(""); // idk
 
     public void updatePlayerStats(Player player) {
         StatMap total = getTotalStatsFromEquipment(player);
@@ -188,10 +192,7 @@ public class StatManager {
         // Bukkitの最大HPを20.0に固定
         AttributeInstance maxHealthAttr = player.getAttribute(Attribute.MAX_HEALTH);
         if (maxHealthAttr != null && maxHealthAttr.getValue() != 20.0) {
-            AttributeModifier existing = maxHealthAttr.getModifier(MAX_HEALTH_MODIFIER_ID);
-            if (existing != null) {
-                maxHealthAttr.removeModifier(existing);
-            }
+            LegacyUtil.removeLegacyAttribute(maxHealthAttr, MAX_HEALTH_MODIFIER_ID);
             maxHealthAttr.setBaseValue(20.0);
         }
 
@@ -338,20 +339,18 @@ public class StatManager {
         if (attr == null) return;
 
         // 先に既存のModifier（UUID指定）を完全に削除
-        AttributeModifier existing = attr.getModifier(ATTACK_DAMAGE_MODIFIER_ID);
-        if (existing != null) {
-            attr.removeModifier(existing);
-        }
+        LegacyUtil.removeLegacyAttribute(attr, ATTACK_DAMAGE_MODIFIER_ID);
+        // 追加
+        attr.removeModifier(ATTACK_DAMAGE_ATTRIBUTE);
 
         // 値が0なら追加不要
         if (value == 0) return;
 
         // 新たなModifierを追加
         AttributeModifier modifier = new AttributeModifier(
-                ATTACK_DAMAGE_MODIFIER_ID,
-                "MMO_Attack_Damage",
-                value,
-                AttributeModifier.Operation.ADD_NUMBER
+            ATTACK_DAMAGE_ATTRIBUTE,
+            value,
+            AttributeModifier.Operation.ADD_NUMBER
         );
         attr.addModifier(modifier);
     }
@@ -409,7 +408,7 @@ public class StatManager {
                 }
             } catch (IllegalArgumentException ex) {
                 Bukkit.getLogger().warning("[StatManager] Invalid AttributeModifier UUID on player " +
-                        player.getName() + " | Attribute: " + attrType.name() + " | Modifier: " + mod);
+                        player.getName() + " | Attribute: " + attrType.key() + " | Modifier: " + mod);
                 // 明示的に削除しても良い（安全であれば）
                 attr.removeModifier(mod);
             }
