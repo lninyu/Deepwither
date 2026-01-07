@@ -12,8 +12,13 @@ public class DungeonPart {
     private final int length;
 
     // Origin(Schematic保存時の立ち位置)からの相対座標
-    private BlockVector3 entryOffset = BlockVector3.ZERO;
-    private BlockVector3 exitOffset = BlockVector3.ZERO;
+    // private BlockVector3 entryOffset = BlockVector3.ZERO;
+    // private BlockVector3 exitOffset = BlockVector3.ZERO;
+
+    // Store as primitives to avoid vector object weirdness/mutability issues during
+    // debug
+    private int entryX, entryY, entryZ;
+    private int exitX, exitY, exitZ;
 
     public DungeonPart(String fileName, String type, int length) {
         this.fileName = fileName;
@@ -34,16 +39,26 @@ public class DungeonPart {
 
             // 金ブロック (入口) -> 接続元を受け入れる場所
             if (block.getBlockType().equals(BlockTypes.GOLD_BLOCK)) {
-                this.entryOffset = pos.subtract(origin);
-                Deepwither.getInstance().getLogger().info(String.format("[%s] Found ENTRY(Gold) at %s. RelOffset: %s",
-                        fileName, pos, entryOffset));
+                // this.entryOffset = pos.subtract(origin);
+                this.entryX = pos.getX() - origin.getX();
+                this.entryY = pos.getY() - origin.getY();
+                this.entryZ = pos.getZ() - origin.getZ();
+
+                Deepwither.getInstance().getLogger().info(String.format(
+                        "[%s] Found ENTRY(Gold). Pos:%s - Origin:%s = %d,%d,%d",
+                        fileName, pos, origin, entryX, entryY, entryZ));
                 foundEntry = true;
             }
             // 鉄ブロック (出口) -> 次のパーツへ接続する場所
             else if (block.getBlockType().equals(BlockTypes.IRON_BLOCK)) {
-                this.exitOffset = pos.subtract(origin);
-                Deepwither.getInstance().getLogger().info(String.format("[%s] Found EXIT(Iron) at %s. RelOffset: %s",
-                        fileName, pos, exitOffset));
+                // this.exitOffset = pos.subtract(origin);
+                this.exitX = pos.getX() - origin.getX();
+                this.exitY = pos.getY() - origin.getY();
+                this.exitZ = pos.getZ() - origin.getZ();
+
+                Deepwither.getInstance().getLogger().info(String.format(
+                        "[%s] Found EXIT(Iron). Pos:%s - Origin:%s = %d,%d,%d",
+                        fileName, pos, origin, exitX, exitY, exitZ));
                 foundExit = true;
             }
         }
@@ -63,14 +78,14 @@ public class DungeonPart {
      * 回転後の「入口」オフセットを取得
      */
     public BlockVector3 getRotatedEntryOffset(int rotation) {
-        return transformVector(entryOffset, rotation);
+        return transformVector(getEntryOffset(), rotation);
     }
 
     /**
      * 回転後の「出口」オフセットを取得
      */
     public BlockVector3 getRotatedExitOffset(int rotation) {
-        return transformVector(exitOffset, rotation);
+        return transformVector(getExitOffset(), rotation);
     }
 
     /**
@@ -95,11 +110,11 @@ public class DungeonPart {
     }
 
     public BlockVector3 getEntryOffset() {
-        return entryOffset;
+        return BlockVector3.at(entryX, entryY, entryZ);
     }
 
     public BlockVector3 getExitOffset() {
-        return exitOffset;
+        return BlockVector3.at(exitX, exitY, exitZ);
     }
 
     public String getFileName() {
