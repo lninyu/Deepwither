@@ -1,5 +1,8 @@
 package com.lunar_prototype.deepwither;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -12,9 +15,13 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Function;
 
 public class ArtifactGUIListener implements Listener {
+    private static final Function<Component, String> serializer = component -> PlainTextComponentSerializer.plainText().serialize(component);
 
     // GUIのインスタンスを共有するために、ArtifactGUIクラスのインスタンスを渡す
     private ArtifactGUI artifactGUI;
@@ -27,7 +34,7 @@ public class ArtifactGUIListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        if (!event.getView().getTitle().contains("アーティファクト")) {
+        if (!serializer.apply(event.getView().title()).contains("アーティファクト")) {
             return;
         }
 
@@ -54,7 +61,7 @@ public class ArtifactGUIListener implements Listener {
                     if (currentItem.getType() == Material.CYAN_STAINED_GLASS_PANE ||
                             currentItem.getType() == Material.PURPLE_STAINED_GLASS_PANE) {
                         event.setCancelled(true);
-                        player.sendMessage("§cこのプレースホルダーは持ち出せません。");
+                        player.sendMessage(Component.text("このプレースホルダーは持ち出せません。", NamedTextColor.RED));
                         return;
                     }
                     // ここで return しないことで、本物のアイテムなら持ち出し（キャンセルなし）が成立します
@@ -65,10 +72,10 @@ public class ArtifactGUIListener implements Listener {
                 if (cursorItem.getType() != Material.AIR) {
                     if (isArtifact && !isArtifact(cursorItem)) {
                         event.setCancelled(true);
-                        player.sendMessage("§cここにはアーティファクトのみ装備できます。");
+                        player.sendMessage(Component.text("ここにはアーティファクトのみ装備できます。", NamedTextColor.RED));
                     } else if (isBackpack && !isBackpackItem(cursorItem)) {
                         event.setCancelled(true);
-                        player.sendMessage("§cここには背中装備のみ装備できます。");
+                        player.sendMessage(Component.text("ここには背中装備のみ装備できます。", NamedTextColor.RED));
                     }
 
                     if (currentItem != null && (currentItem.getType() == Material.CYAN_STAINED_GLASS_PANE ||
@@ -100,7 +107,7 @@ public class ArtifactGUIListener implements Listener {
             if (event.isShiftClick()) {
                 // シフトクリックは処理が複雑になるため、このGUIでは一旦無効化するのが安定します
                 event.setCancelled(true);
-                player.sendMessage("§cこのGUIではシフトクリックは無効です。ドラッグして配置してください。");
+                player.sendMessage(Component.text("このGUIではシフトクリックは無効です。ドラッグして配置してください。", NamedTextColor.RED));
             }
         }
     }
@@ -109,7 +116,7 @@ public class ArtifactGUIListener implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        if (event.getView().getTitle().contains("アーティファクト")) {
+        if (serializer.apply(event.getView().title()).contains("アーティファクト")) {
             Player player = (Player) event.getPlayer();
             Inventory guiInventory = event.getInventory();
             Deepwither plugin = Deepwither.getInstance();
@@ -131,8 +138,8 @@ public class ArtifactGUIListener implements Listener {
                 toSaveBackpack = backpackItem;
 
                 // BackpackManagerと連携して表示を更新
-                if (backpackItem.hasItemMeta() && backpackItem.getItemMeta().hasCustomModelData()) {
-                    int model = backpackItem.getItemMeta().getCustomModelData();
+                if (backpackItem.hasItemMeta() && backpackItem.getItemMeta().hasCustomModelDataComponent()) {
+                    int model = Math.max(0, backpackItem.getItemMeta().getCustomModelDataComponent().getFloats().getFirst().intValue());
                     plugin.getBackpackManager().equipBackpack(player, model);
                 }
             } else {
@@ -171,8 +178,10 @@ public class ArtifactGUIListener implements Listener {
 
         ItemMeta meta = item.getItemMeta();
         if (meta.hasLore()) {
-            List<String> lore = meta.getLore();
-            for (String line : lore) {
+            var lore = meta.lore();
+            if (lore == null) return false;
+            for (var component : lore) {
+                var line = serializer.apply(component);
                 // "アーティファクト"という文字列が含まれているかをチェック
                 if (line.contains("アーティファクト")) {
                     return true;
@@ -187,7 +196,14 @@ public class ArtifactGUIListener implements Listener {
      */
     private boolean isBackpackItem(ItemStack item) {
         if (item == null || !item.hasItemMeta() || !item.getItemMeta().hasLore()) return false;
-        return item.getItemMeta().getLore().stream().anyMatch(line -> line.contains("背中装備"));
+
+        return Optional.of(item)
+            .map(ItemStack::getItemMeta)
+            .map(ItemMeta::lore)
+            .stream()
+            .flatMap(Collection::stream)
+            .anyMatch(component -> serializer.apply(component).contains("背中装備"));
+
     }
 
     /**
