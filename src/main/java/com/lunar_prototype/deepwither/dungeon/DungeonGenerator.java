@@ -94,7 +94,8 @@ public class DungeonGenerator {
         DungeonPart entrancePart = findPartByType("ENTRANCE");
         if (entrancePart != null) {
             Deepwither.getInstance().getLogger().info("> Placing Start (ENTRANCE)");
-            currentAnchor = pastePart(world, currentAnchor, entrancePart, rotation);
+            // Rotate Start 180 degrees to match Hallway flow
+            currentAnchor = pastePart(world, currentAnchor, entrancePart, rotation + 180);
         } else {
             Deepwither.getInstance().getLogger().warning("Type 'ENTRANCE' not found! Skipping start.");
         }
