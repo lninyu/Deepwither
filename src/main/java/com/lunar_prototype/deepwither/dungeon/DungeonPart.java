@@ -32,11 +32,15 @@ public class DungeonPart {
             // 金ブロック (入口) -> 接続元を受け入れる場所
             if (block.getBlockType().equals(BlockTypes.GOLD_BLOCK)) {
                 this.entryOffset = pos.subtract(origin);
+                Deepwither.getInstance().getLogger().info(String.format("[%s] Found ENTRY(Gold) at %s. RelOffset: %s",
+                        fileName, pos, entryOffset));
                 foundEntry = true;
             }
             // 鉄ブロック (出口) -> 次のパーツへ接続する場所
             else if (block.getBlockType().equals(BlockTypes.IRON_BLOCK)) {
                 this.exitOffset = pos.subtract(origin);
+                Deepwither.getInstance().getLogger().info(String.format("[%s] Found EXIT(Iron) at %s. RelOffset: %s",
+                        fileName, pos, exitOffset));
                 foundExit = true;
             }
         }
