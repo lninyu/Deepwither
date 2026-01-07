@@ -471,8 +471,7 @@ public final class  Deepwither extends JavaPlugin {
         MenuGUI menuGUI = new MenuGUI(this);
         getCommand("menu").setExecutor(new MenuCommand(menuGUI));
         getServer().getPluginManager().registerEvents(new MenuItemListener(this,menuGUI),this);
-        getServer().getPluginManager().registerEvents(new PickupRestricter(settingsManager),this);
-        getServer().getPluginManager().registerEvents(new WeaponHotbarLimiter(),this);
+        getServer().getPluginManager().registerEvents(new PlayerInventoryRestrictor(settingsManager),this);
 
         getCommand("skills").setExecutor(new SkillAssignmentCommand());
         getCommand("blacksmith").setExecutor(new BlacksmithCommand());
