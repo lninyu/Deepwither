@@ -70,7 +70,7 @@ public class DeepwitherCommand implements CommandExecutor, TabCompleter {
         // 生成実行
         // ※実際にはここで「個別ワールド生成」と紐付けますが、まずは現在のワールドでテスト
         DungeonGenerator gen = new DungeonGenerator(dungeonName);
-        gen.generateStraight(player.getWorld(), count);
+        gen.generateStraight(player.getWorld(), count,90);
 
         player.sendMessage("§a[Dungeon] 生成が完了しました！");
     }

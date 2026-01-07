@@ -5,6 +5,7 @@ import com.sk89q.worldedit.extent.clipboard.Clipboard;
 import com.sk89q.worldedit.extent.clipboard.io.ClipboardFormat;
 import com.sk89q.worldedit.extent.clipboard.io.ClipboardFormats;
 import com.sk89q.worldedit.extent.clipboard.io.ClipboardReader;
+import com.sk89q.worldedit.math.BlockVector3;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -70,65 +71,47 @@ public class DungeonGenerator {
     }
 
     /**
-     * マーカー座標を利用して一直線のダンジョンを生成する
+     * 回転を考慮して一直線のダンジョンを生成する
      */
-    public void generateStraight(World world, int hallwayCount) {
-        // 次のパーツの「入口」を繋ぐべき座標 (アンカー)
+    public void generateStraight(World world, int hallwayCount, int rotation) {
         Location nextAnchor = new Location(world, 0, 64, 0);
 
-        // 1. Entrance を配置
+        // 1. Entrance
         DungeonPart entrance = findPartByType("ENTRANCE");
         if (entrance != null) {
-            // 配置実行
-            nextAnchor = pasteAndGetNextAnchor(nextAnchor, entrance);
+            nextAnchor = pasteAndGetNextAnchor(nextAnchor, entrance, rotation);
         }
 
-        // 2. Hallway を指定数分ループで配置
+        // 2. Hallways
         DungeonPart hallway = findPartByType("HALLWAY");
         if (hallway != null) {
             for (int i = 0; i < hallwayCount; i++) {
-                nextAnchor = pasteAndGetNextAnchor(nextAnchor, hallway);
+                nextAnchor = pasteAndGetNextAnchor(nextAnchor, hallway, rotation);
             }
         }
-
-        Deepwither.getInstance().getLogger().info(dungeonName + " の生成が完了しました。");
     }
 
-    /**
-     * 指定したアンカー地点に入口を合わせて貼り付け、次の出口アンカーを返す
-     */
-    private Location pasteAndGetNextAnchor(Location anchor, DungeonPart part) {
+    private Location pasteAndGetNextAnchor(Location anchor, DungeonPart part, int rotation) {
         File file = new File(dungeonFolder, part.getFileName());
 
-        // 貼り付け位置(Origin)の計算:
-        // アンカー地点から、パーツ自体の入口オフセット分を差し引いた場所
-        Location pasteLoc;
-        if (part.getEntryOffset() != null) {
-            pasteLoc = anchor.clone().subtract(
-                    part.getEntryOffset().getX(),
-                    part.getEntryOffset().getY(),
-                    part.getEntryOffset().getZ()
-            );
-        } else {
-            // マーカーがない場合のフォールバック
-            pasteLoc = anchor.clone();
+        // 回転後のオフセットを取得
+        BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
+        BlockVector3 rotatedExit = part.getRotatedExitOffset(rotation);
+
+        // 貼り付け位置(Origin)の計算
+        Location pasteLoc = anchor.clone();
+        if (rotatedEntry != null) {
+            pasteLoc.subtract(rotatedEntry.getX(), rotatedEntry.getY(), rotatedEntry.getZ());
         }
 
-        // 貼り付け実行
-        SchematicUtil.paste(pasteLoc, file);
+        // FAWEで回転を指定して貼り付け
+        SchematicUtil.paste(pasteLoc, file, rotation);
 
-        // 次のアンカー地点を計算して返す
-        if (part.getExitOffset() != null) {
-            // 貼り付けた基準点に、出口オフセットを足した場所
-            return pasteLoc.clone().add(
-                    part.getExitOffset().getX(),
-                    part.getExitOffset().getY(),
-                    part.getExitOffset().getZ()
-            );
-        } else {
-            // マーカーがない場合は従来のZ軸加算
-            return anchor.clone().add(0, 0, part.getLength());
+        // 次のアンカーを計算
+        if (rotatedExit != null) {
+            return pasteLoc.clone().add(rotatedExit.getX(), rotatedExit.getY(), rotatedExit.getZ());
         }
+        return anchor.clone().add(0, 0, 10); // fallback
     }
 
     private DungeonPart findPartByType(String type) {
