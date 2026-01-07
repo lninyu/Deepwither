@@ -74,9 +74,9 @@ public class DungeonPart {
         int normalizedAngle = angle % 360;
         if (normalizedAngle < 0) normalizedAngle += 360;
 
-        int x = vec.getX();
-        int y = vec.getY();
-        int z = vec.getZ();
+        int x = vec.x();
+        int y = vec.y();
+        int z = vec.z();
 
         // WorldEditの回転仕様に合わせて調整 (通常: 時計回り)
         switch (normalizedAngle) {

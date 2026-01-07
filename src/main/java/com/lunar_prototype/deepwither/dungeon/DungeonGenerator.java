@@ -146,9 +146,9 @@ public class DungeonGenerator {
 
             // 2. 貼り付け基準点 (Paste Origin) の計算
             // アンカー位置に、このパーツの「入口(Gold)」が重なるように座標を引く
-            double pasteX = anchor.getX() - rotatedEntry.getX();
-            double pasteY = anchor.getY() - rotatedEntry.getY();
-            double pasteZ = anchor.getZ() - rotatedEntry.getZ();
+            double pasteX = anchor.getX() - rotatedEntry.x();
+            double pasteY = anchor.getY() - rotatedEntry.y();
+            double pasteZ = anchor.getZ() - rotatedEntry.z();
 
             BlockVector3 pasteVector = BlockVector3.at(pasteX, pasteY, pasteZ);
 
@@ -170,9 +170,9 @@ public class DungeonGenerator {
             // 4. 次の接続点 (Next Anchor) の計算
             // 貼り付け基準点(Origin) + 出口オフセット(Iron)
             Location nextAnchor = new Location(world,
-                    pasteX + rotatedExit.getX(),
-                    pasteY + rotatedExit.getY(),
-                    pasteZ + rotatedExit.getZ()
+                    pasteX + rotatedExit.x(),
+                    pasteY + rotatedExit.y(),
+                    pasteZ + rotatedExit.z()
             );
 
             // デバッグログ: つながりを確認したい場合に有効

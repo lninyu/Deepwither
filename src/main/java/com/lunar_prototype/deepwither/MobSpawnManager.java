@@ -531,10 +531,10 @@ public class MobSpawnManager {
         Random random = plugin.getRandom();
 
         // リージョン境界内でのランダムな座標計算
-        int minX = region.getMinimumPoint().getBlockX();
-        int maxX = region.getMaximumPoint().getBlockX();
-        int minZ = region.getMinimumPoint().getBlockZ();
-        int maxZ = region.getMaximumPoint().getBlockZ();
+        int minX = region.getMinimumPoint().x();
+        int maxX = region.getMaximumPoint().x();
+        int minZ = region.getMinimumPoint().z();
+        int maxZ = region.getMaximumPoint().z();
 
         double x = minX + random.nextDouble() * (maxX - minX + 1);
         double z = minZ + random.nextDouble() * (maxZ - minZ + 1);
