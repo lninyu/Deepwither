@@ -3,7 +3,6 @@ package com.lunar_prototype.deepwither.dungeon;
 import com.lunar_prototype.deepwither.Deepwither;
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
 import com.sk89q.worldedit.math.BlockVector3;
-import com.sk89q.worldedit.math.transform.AffineTransform;
 import com.sk89q.worldedit.world.block.BlockTypes;
 
 public class DungeonPart {
@@ -11,7 +10,7 @@ public class DungeonPart {
     private final String type;
     private final int length;
 
-    // Origin(保存時の立ち位置)からの相対座標
+    // Origin(Schematic保存時の立ち位置)からの相対座標
     private BlockVector3 entryOffset = BlockVector3.ZERO;
     private BlockVector3 exitOffset = BlockVector3.ZERO;
 
@@ -26,30 +25,27 @@ public class DungeonPart {
         boolean foundEntry = false;
         boolean foundExit = false;
 
-        Deepwither.getInstance().getLogger().info("[" + fileName + "] Scanning markers... Origin: " + origin);
-
         for (BlockVector3 pos : clipboard.getRegion()) {
             var block = clipboard.getFullBlock(pos);
 
-            // 金ブロック (入口)
+            // 金ブロック (入口) -> 接続元を受け入れる場所
             if (block.getBlockType().equals(BlockTypes.GOLD_BLOCK)) {
                 this.entryOffset = pos.subtract(origin);
                 foundEntry = true;
-                Deepwither.getInstance().getLogger().info("  -> Found ENTRY (Gold). RelOffset: " + entryOffset);
             }
-            // 鉄ブロック (出口)
+            // 鉄ブロック (出口) -> 次のパーツへ接続する場所
             else if (block.getBlockType().equals(BlockTypes.IRON_BLOCK)) {
                 this.exitOffset = pos.subtract(origin);
                 foundExit = true;
-                Deepwither.getInstance().getLogger().info("  -> Found EXIT (Iron). RelOffset: " + exitOffset);
             }
         }
 
         if (!foundEntry) {
-            Deepwither.getInstance().getLogger().warning("  [!] WARNING: No ENTRY (Gold Block) found in " + fileName + ". Using (0,0,0).");
+            Deepwither.getInstance().getLogger().warning("[" + fileName + "] Warning: No Gold Block (Entry) found. Assuming (0,0,0).");
         }
-        if (!foundExit && !type.equals("ROOM")) { // ROOMタイプ等は出口がなくてもいいかも
-            Deepwither.getInstance().getLogger().warning("  [!] WARNING: No EXIT (Iron Block) found in " + fileName + ". Using (0,0,0).");
+        // ROOMや終端用パーツの場合、出口がないことは正常なのでWarningを出さない判定にしても良い
+        if (!foundExit && !type.equals("ROOM")) {
+            Deepwither.getInstance().getLogger().info("[" + fileName + "] Info: No Iron Block (Exit) found. (Normal for dead-ends)");
         }
     }
 
@@ -68,13 +64,13 @@ public class DungeonPart {
     }
 
     /**
-     * Y軸周りにベクトルを回転させる（90度単位専用）
-     * WorldEditのAPIを使わず、単純な座標入れ替えで計算するためバグらない
+     * Y軸周りの回転 (時計回り)
+     * WEのrotateYは反時計回り等の場合があるため、動作確認して逆になるようなら符号を反転させてください。
+     * ここでは一般的な座標回転行列に基づいています。
      */
     private BlockVector3 transformVector(BlockVector3 vec, int angle) {
         if (vec == null) return BlockVector3.ZERO;
 
-        // 負の角度を正の角度(0, 90, 180, 270)に正規化
         int normalizedAngle = angle % 360;
         if (normalizedAngle < 0) normalizedAngle += 360;
 
@@ -82,19 +78,16 @@ public class DungeonPart {
         int y = vec.getY();
         int z = vec.getZ();
 
+        // WorldEditの回転仕様に合わせて調整 (通常: 時計回り)
         switch (normalizedAngle) {
             case 90:
-                // 90度回転: (x, z) -> (-z, x)
                 return BlockVector3.at(-z, y, x);
             case 180:
-                // 180度回転: (x, z) -> (-x, -z)
                 return BlockVector3.at(-x, y, -z);
             case 270:
-                // 270度回転: (x, z) -> (z, -x)
                 return BlockVector3.at(z, y, -x);
             case 0:
             default:
-                // 0度（そのまま）
                 return vec;
         }
     }

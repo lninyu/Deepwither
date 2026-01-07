@@ -19,7 +19,6 @@ import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +36,10 @@ public class DungeonGenerator {
 
     private void loadConfig() {
         File configFile = new File(Deepwither.getInstance().getDataFolder(), "dungeons/" + dungeonName + ".yml");
+        if (!configFile.exists()) {
+            Deepwither.getInstance().getLogger().severe("Config not found: " + configFile.getAbsolutePath());
+            return;
+        }
         YamlConfiguration config = YamlConfiguration.loadConfiguration(configFile);
 
         List<Map<?, ?>> maps = config.getMapList("parts");
@@ -52,10 +55,11 @@ public class DungeonGenerator {
             if (fileName != null && type != null) {
                 DungeonPart part = new DungeonPart(fileName, type.toUpperCase(), length);
 
-                // --- 追加: マーカーのスキャン ---
                 File schemFile = new File(dungeonFolder, fileName);
                 if (schemFile.exists()) {
                     scanPartMarkers(part, schemFile);
+                } else {
+                    Deepwither.getInstance().getLogger().warning("Schematic file not found: " + fileName);
                 }
 
                 partList.add(part);
@@ -63,103 +67,129 @@ public class DungeonGenerator {
         }
     }
 
-    /**
-     * Schematicファイルを一時的に読み込んでマーカーをスキャンする
-     */
     private void scanPartMarkers(DungeonPart part, File file) {
         ClipboardFormat format = ClipboardFormats.findByFile(file);
         if (format == null) return;
 
         try (ClipboardReader reader = format.getReader(new FileInputStream(file))) {
             Clipboard clipboard = reader.read();
-            part.scanMarkers(clipboard); // 前のステップで作ったscanMarkersを呼び出し
+            part.scanMarkers(clipboard);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
     /**
-     * 生成のメイン処理
+     * 生成のメイン処理 (一本道)
+     * Start(Entrance) -> Hallway * count -> End(Entrance)
      */
     public void generateStraight(World world, int hallwayCount, int rotation) {
-        // 最初の基準点 (ここに入口が来る)
+        Deepwither.getInstance().getLogger().info("=== 生成開始: Straight Dungeon (Rot:" + rotation + ") ===");
+
+        // 最初の基準点 (ここに入口のGold Blockが重なるように配置される)
         Location currentAnchor = new Location(world, 0, 64, 0);
 
-        // 1. Entrance
-        DungeonPart entrance = findPartByType("ENTRANCE");
-        if (entrance != null) {
-            currentAnchor = pasteAndGetNextAnchor(world,currentAnchor, entrance, rotation);
+        // --- 1. START (Entrance) ---
+        DungeonPart entrancePart = findPartByType("ENTRANCE");
+        if (entrancePart != null) {
+            Deepwither.getInstance().getLogger().info("> Placing Start (ENTRANCE)");
+            currentAnchor = pastePart(world, currentAnchor, entrancePart, rotation);
+        } else {
+            Deepwither.getInstance().getLogger().warning("Type 'ENTRANCE' not found! Skipping start.");
         }
 
-        // 2. Hallways
-        DungeonPart hallway = findPartByType("HALLWAY");
-        if (hallway != null) {
+        // --- 2. MIDDLE (Hallways) ---
+        DungeonPart hallwayPart = findPartByType("HALLWAY");
+        if (hallwayPart != null) {
             for (int i = 0; i < hallwayCount; i++) {
-                currentAnchor = pasteAndGetNextAnchor(world,currentAnchor, hallway, rotation);
+                Deepwither.getInstance().getLogger().info("> Placing Hallway #" + (i + 1));
+                currentAnchor = pastePart(world, currentAnchor, hallwayPart, rotation);
             }
+        } else {
+            Deepwither.getInstance().getLogger().warning("Type 'HALLWAY' not found! Skipping hallways.");
         }
 
-        Deepwither.getInstance().getLogger().info("生成完了");
+        // --- 3. END (Entrance as Exit) ---
+        // 終端としてもう一度 ENTRANCE を置く (あるいは EXIT タイプがあればそれを使う)
+        if (entrancePart != null) {
+            Deepwither.getInstance().getLogger().info("> Placing End (ENTRANCE)");
+            // 最後の戻り値(Anchor)は使わないので無視してOK
+            pastePart(world, currentAnchor, entrancePart, rotation);
+        }
+
+        Deepwither.getInstance().getLogger().info("=== 生成完了 ===");
     }
 
     /**
      * パーツを貼り付けて、次の接続点(Anchor)を返す
+     * * ロジック:
+     * PreviousAnchor == PasteOrigin + RotatedEntryOffset
+     * よって、
+     * PasteOrigin = PreviousAnchor - RotatedEntryOffset
+     * * NextAnchor = PasteOrigin + RotatedExitOffset
      */
-    private Location pasteAndGetNextAnchor(World world, Location anchor, DungeonPart part, int rotation) {
+    private Location pastePart(World world, Location anchor, DungeonPart part, int rotation) {
         File schemFile = new File(dungeonFolder, part.getFileName());
         ClipboardFormat format = ClipboardFormats.findByFile(schemFile);
 
-        if (format == null) return anchor;
+        if (format == null) {
+            Deepwither.getInstance().getLogger().severe("Format invalid: " + part.getFileName());
+            return anchor;
+        }
 
         try (ClipboardReader reader = format.getReader(new FileInputStream(schemFile))) {
             Clipboard clipboard = reader.read();
 
-            // 1. パーツの「回転後の相対座標」を取得
+            // 1. オフセット計算
             BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
             BlockVector3 rotatedExit = part.getRotatedExitOffset(rotation);
 
-            // デバッグログ
-            Deepwither.getInstance().getLogger().info("Part: " + part.getFileName() + " | Rot: " + rotation);
-            Deepwither.getInstance().getLogger().info("  EntryOffset: " + rotatedEntry + " | ExitOffset: " + rotatedExit);
+            // 2. 貼り付け基準点 (Paste Origin) の計算
+            // アンカー位置に、このパーツの「入口(Gold)」が重なるように座標を引く
+            double pasteX = anchor.getX() - rotatedEntry.getX();
+            double pasteY = anchor.getY() - rotatedEntry.getY();
+            double pasteZ = anchor.getZ() - rotatedEntry.getZ();
 
-            // 2. 貼り付け位置(Paste Origin)を計算
-            // 「アンカー位置」から「回転後の入口オフセット」を引くことで、
-            // アンカーの位置に入口ブロックが来るように位置合わせする
-            Location pasteLoc = anchor.clone().subtract(
-                    rotatedEntry.getX(),
-                    rotatedEntry.getY(),
-                    rotatedEntry.getZ()
-            );
+            BlockVector3 pasteVector = BlockVector3.at(pasteX, pasteY, pasteZ);
 
-            // 3. 貼り付け
+            // 3. WorldEdit で貼り付け
             try (EditSession editSession = WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(world))) {
                 ClipboardHolder holder = new ClipboardHolder(clipboard);
+
+                // ここでY軸回転を指定
                 holder.setTransform(new AffineTransform().rotateY(rotation));
 
                 Operation operation = holder
                         .createPaste(editSession)
-                        .to(BlockVector3.at(pasteLoc.getX(), pasteLoc.getY(), pasteLoc.getZ()))
+                        .to(pasteVector)
                         .ignoreAirBlocks(true)
                         .build();
                 Operations.complete(operation);
             }
 
-            // 4. 次のアンカー計算
-            // 「貼り付け位置(Paste Origin)」に「回転後の出口オフセット」を足す
-            return pasteLoc.clone().add(
-                    rotatedExit.getX(),
-                    rotatedExit.getY(),
-                    rotatedExit.getZ()
+            // 4. 次の接続点 (Next Anchor) の計算
+            // 貼り付け基準点(Origin) + 出口オフセット(Iron)
+            Location nextAnchor = new Location(world,
+                    pasteX + rotatedExit.getX(),
+                    pasteY + rotatedExit.getY(),
+                    pasteZ + rotatedExit.getZ()
             );
+
+            // デバッグログ: つながりを確認したい場合に有効
+            // Deepwither.getInstance().getLogger().info("  Placed at: " + pasteVector + " -> Next Anchor: " + nextAnchor.toVector());
+
+            return nextAnchor;
 
         } catch (Exception e) {
             e.printStackTrace();
+            return anchor; // エラー時は動かさない
         }
-
-        return anchor;
     }
 
     private DungeonPart findPartByType(String type) {
-        return partList.stream().filter(p -> p.getType().equals(type)).findFirst().orElse(null);
+        return partList.stream()
+                .filter(p -> p.getType().equals(type))
+                .findFirst()
+                .orElse(null);
     }
 }
