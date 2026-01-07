@@ -13,6 +13,7 @@ import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -90,7 +91,7 @@ public class PlayerInventoryRestrictor implements Listener {
                 var inventory = player.getInventory();
                 var button = event.getHotbarButton();
                 if (button == -1) {
-                    if (HOTBAR_HEAD <= slot && slot <= HOTBAR_TAIL
+                    if (event.getClickedInventory() instanceof PlayerInventory && HOTBAR_HEAD <= slot && slot <= HOTBAR_TAIL
                         && isWeapon(inventory.getItemInOffHand())
                         && !isWeapon(inventory.getItemInMainHand())
                         && hasWeaponInHotbar(inventory)
@@ -98,7 +99,7 @@ public class PlayerInventoryRestrictor implements Listener {
                         player.sendMessage(MULTIPLE_WEAPONS);
                         event.setCancelled(true);
                     }
-                } else if (slot != button && hasWeaponInHotbar(inventory)
+                } else if (event.getClickedInventory() instanceof PlayerInventory && slot != button && hasWeaponInHotbar(inventory)
                     && (HOTBAR_HEAD <= slot && slot <= HOTBAR_TAIL && isWeapon(inventory.getItem(button)) && !isWeapon(inventory.getItem(slot))
                     || STORAGE_HEAD <= slot && slot <= STORAGE_TAIL && !isWeapon(inventory.getItem(button)) && isWeapon(inventory.getItem(slot)))
                 ) {
