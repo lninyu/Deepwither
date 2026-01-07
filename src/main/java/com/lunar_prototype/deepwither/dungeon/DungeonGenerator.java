@@ -109,23 +109,32 @@ public class DungeonGenerator {
         File schemFile = new File(dungeonFolder, part.getFileName());
         ClipboardFormat format = ClipboardFormats.findByFile(schemFile);
 
-        if (format == null) return anchor;
+        if (format == null) {
+            Deepwither.getInstance().getLogger().warning("Schematic file not found: " + part.getFileName());
+            return anchor;
+        }
 
         try (ClipboardReader reader = format.getReader(new FileInputStream(schemFile))) {
             Clipboard clipboard = reader.read();
 
+            // --- デバッグ: 開始 ---
+            Deepwither.getInstance().getLogger().info("========================================");
+            Deepwither.getInstance().getLogger().info("Pasting Part: " + part.getFileName() + " | Rotation: " + rotation);
+            Deepwither.getInstance().getLogger().info("Current Anchor (Paste Target): " + anchor.getBlockX() + ", " + anchor.getBlockY() + ", " + anchor.getBlockZ());
+
             // ★ここが最大の修正ポイント★
             // Schematicの持っているOriginを無視し、「入口ブロックの位置」を新しいOriginに設定する
-            // これで「貼り付け基準点 == 入口」になります
-            clipboard.setOrigin(part.getEntryPos());
+            BlockVector3 entryPos = part.getEntryPos();
+            Deepwither.getInstance().getLogger().info("Setting Clipboard Origin to EntryPos: " + entryPos); // これが(0,0,0)以外ならOK
+
+            clipboard.setOrigin(entryPos);
 
             // 1. 貼り付け設定
             ClipboardHolder holder = new ClipboardHolder(clipboard);
             holder.setTransform(new AffineTransform().rotateY(rotation));
 
             // 2. 貼り付け位置
-            // Origin = 入口 になっているので、ズレ補正計算は不要！
-            // そのまま anchor (結合したい点) に貼り付ければ、入口同士が重なります
+            // Origin = 入口 になっているので、anchor (結合したい点) にそのまま貼り付け
             Location pasteLoc = anchor;
 
             // 3. 貼り付け実行
@@ -136,17 +145,26 @@ public class DungeonGenerator {
                         .ignoreAirBlocks(true)
                         .build();
                 Operations.complete(operation);
+                // Deepwither.getInstance().getLogger().info("Paste operation completed.");
             }
 
             // 4. 次のアンカー計算
             // 「入口から出口へのベクトル」だけを回転させて足せばOK
             BlockVector3 rotatedExitVec = part.getRotatedExitVector(rotation);
+            Deepwither.getInstance().getLogger().info("Rotated Exit Vector (Relative): " + rotatedExitVec);
 
-            return pasteLoc.clone().add(
+            Location nextAnchor = pasteLoc.clone().add(
                     rotatedExitVec.getX(),
                     rotatedExitVec.getY(),
                     rotatedExitVec.getZ()
             );
+
+            Deepwither.getInstance().getLogger().info("Next Anchor Calculated: " + nextAnchor.getBlockX() + ", " + nextAnchor.getBlockY() + ", " + nextAnchor.getBlockZ());
+
+            // ★視覚デバッグ用 (必要なければ削除)
+            // world.getBlockAt(nextAnchor).setType(org.bukkit.Material.EMERALD_BLOCK);
+
+            return nextAnchor;
 
         } catch (Exception e) {
             e.printStackTrace();
