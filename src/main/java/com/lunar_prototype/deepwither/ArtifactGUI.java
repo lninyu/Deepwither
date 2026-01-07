@@ -1,5 +1,7 @@
 package com.lunar_prototype.deepwither;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -24,18 +26,22 @@ public class ArtifactGUI implements Listener {
 
     public ArtifactGUI() {
         // GUIの作成 (9スロット)
-        artifactGUI = Bukkit.createInventory(null, 18, "§8[GUI] §6アーティファクト"); // タイトルを見やすく修正
+        artifactGUI = Bukkit.createInventory(null, 18,
+            Component.text()
+                .append(Component.text("[GUI] ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("アーティファクト", NamedTextColor.GOLD))
+                .build()); // タイトルを見やすく修正
 
         // 1. アーティファクトスロットのプレースホルダーを準備
         ItemStack artifactPlaceholder = new ItemStack(Material.CYAN_STAINED_GLASS_PANE); // 色を変えて視認性向上
         ItemMeta artifactMeta = artifactPlaceholder.getItemMeta();
-        artifactMeta.setDisplayName(ChatColor.AQUA + "【アーティファクトスロット】");
+        artifactMeta.displayName(Component.text("【アーティファクトスロット】", NamedTextColor.AQUA));
         artifactPlaceholder.setItemMeta(artifactMeta);
 
         // 2. 装飾用のプレースホルダーを準備
         ItemStack borderPlaceholder = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta borderMeta = borderPlaceholder.getItemMeta();
-        borderMeta.setDisplayName("§7- - -"); // 名前を短く
+        artifactMeta.displayName(Component.text("- - -", NamedTextColor.GRAY)); // 名前を短く
         borderPlaceholder.setItemMeta(borderMeta);
 
         // 3. ★ 装飾スロットを埋める
@@ -50,7 +56,7 @@ public class ArtifactGUI implements Listener {
 
         ItemStack bpPlaceholder = new ItemStack(Material.PURPLE_STAINED_GLASS_PANE);
         ItemMeta bpMeta = bpPlaceholder.getItemMeta();
-        bpMeta.setDisplayName("§d【背中装備スロット】");
+        bpMeta.displayName(Component.text("【背中装備スロット】", NamedTextColor.LIGHT_PURPLE));
         bpPlaceholder.setItemMeta(bpMeta);
         artifactGUI.setItem(BACKPACK_SLOT, bpPlaceholder);
     }
@@ -68,7 +74,7 @@ public class ArtifactGUI implements Listener {
         // 1. アーティファクトスロットのプレースホルダーを再配置
         ItemStack artifactPlaceholder = new ItemStack(Material.CYAN_STAINED_GLASS_PANE);
         ItemMeta artifactMeta = artifactPlaceholder.getItemMeta();
-        artifactMeta.setDisplayName(ChatColor.AQUA + "【アーティファクトスロット】");
+        artifactMeta.displayName(Component.text("【アーティファクトスロット】", NamedTextColor.AQUA));
         artifactPlaceholder.setItemMeta(artifactMeta);
 
         // スロットをプレースホルダーでリセット
