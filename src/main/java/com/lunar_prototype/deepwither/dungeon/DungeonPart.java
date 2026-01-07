@@ -67,19 +67,36 @@ public class DungeonPart {
         return transformVector(exitOffset, rotation);
     }
 
+    /**
+     * Y軸周りにベクトルを回転させる（90度単位専用）
+     * WorldEditのAPIを使わず、単純な座標入れ替えで計算するためバグらない
+     */
     private BlockVector3 transformVector(BlockVector3 vec, int angle) {
         if (vec == null) return BlockVector3.ZERO;
-        if (angle == 0) return vec;
 
-        AffineTransform transform = new AffineTransform().rotateY(angle);
-        com.sk89q.worldedit.math.Vector3 result = transform.apply(vec.toVector3());
+        // 負の角度を正の角度(0, 90, 180, 270)に正規化
+        int normalizedAngle = angle % 360;
+        if (normalizedAngle < 0) normalizedAngle += 360;
 
-        // 四捨五入して整数座標へ
-        return BlockVector3.at(
-                Math.round(result.getX()),
-                Math.round(result.getY()),
-                Math.round(result.getZ())
-        );
+        int x = vec.getX();
+        int y = vec.getY();
+        int z = vec.getZ();
+
+        switch (normalizedAngle) {
+            case 90:
+                // 90度回転: (x, z) -> (-z, x)
+                return BlockVector3.at(-z, y, x);
+            case 180:
+                // 180度回転: (x, z) -> (-x, -z)
+                return BlockVector3.at(-x, y, -z);
+            case 270:
+                // 270度回転: (x, z) -> (z, -x)
+                return BlockVector3.at(z, y, -x);
+            case 0:
+            default:
+                // 0度（そのまま）
+                return vec;
+        }
     }
 
     public String getFileName() { return fileName; }
