@@ -114,35 +114,22 @@ public class DungeonGenerator {
         try (ClipboardReader reader = format.getReader(new FileInputStream(schemFile))) {
             Clipboard clipboard = reader.read();
 
-            // 1. パーツ側で計算された「回転後の入口オフセット」を取得
-            //    (DungeonPart内でAffineTransformを使って計算されるので正確です)
-            BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
-            BlockVector3 rotatedExit = part.getRotatedExitOffset(rotation);
+            // ★ここが最大の修正ポイント★
+            // Schematicの持っているOriginを無視し、「入口ブロックの位置」を新しいOriginに設定する
+            // これで「貼り付け基準点 == 入口」になります
+            clipboard.setOrigin(part.getEntryPos());
 
-            // 2. 貼り付け位置(Originを置く場所)を決定
-            //    「現在のアンカー」から「回転後の入口分」を引き算することで、
-            //    アンカーの位置にちょうど入口が重なるようにします。
-            // ★ 計算過程を全部吐き出す
-            Deepwither.getInstance().getLogger().info("========================================");
-            Deepwither.getInstance().getLogger().info("Pasting Part: " + part.getFileName() + " | Rotation: " + rotation);
-            Deepwither.getInstance().getLogger().info("Current Anchor (目標の入口位置): " + anchor.getBlockX() + ", " + anchor.getBlockY() + ", " + anchor.getBlockZ());
-            Deepwither.getInstance().getLogger().info("Rotated Entry Offset (ズレ補正): " + rotatedEntry);
+            // 1. 貼り付け設定
+            ClipboardHolder holder = new ClipboardHolder(clipboard);
+            holder.setTransform(new AffineTransform().rotateY(rotation));
 
-            // 計算上の貼り付け位置
-            Location pasteLoc = anchor.clone().subtract(
-                    rotatedEntry.getX(),
-                    rotatedEntry.getY(),
-                    rotatedEntry.getZ()
-            );
-            Deepwither.getInstance().getLogger().info("Calculated Paste Origin (貼り付け原点): " + pasteLoc.getBlockX() + ", " + pasteLoc.getBlockY() + ", " + pasteLoc.getBlockZ());
+            // 2. 貼り付け位置
+            // Origin = 入口 になっているので、ズレ補正計算は不要！
+            // そのまま anchor (結合したい点) に貼り付ければ、入口同士が重なります
+            Location pasteLoc = anchor;
 
-            // 3. 実際の貼り付け処理
+            // 3. 貼り付け実行
             try (EditSession editSession = WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(world))) {
-                ClipboardHolder holder = new ClipboardHolder(clipboard);
-
-                // ★重要: ここでも同じ角度で回転変換をセットする
-                holder.setTransform(new AffineTransform().rotateY(rotation));
-
                 Operation operation = holder
                         .createPaste(editSession)
                         .to(BlockVector3.at(pasteLoc.getX(), pasteLoc.getY(), pasteLoc.getZ()))
@@ -151,20 +138,17 @@ public class DungeonGenerator {
                 Operations.complete(operation);
             }
 
-            // 4. 次のアンカー(出口)を計算
-            //    「貼り付け基準点」に「回転後の出口分」を足す
-            // 次のアンカー位置
-            Location nextAnchor = pasteLoc.clone().add(
-                    rotatedExit.getX(),
-                    rotatedExit.getY(),
-                    rotatedExit.getZ()
-            );
-            Deepwither.getInstance().getLogger().info("Next Anchor (次の入口予定地): " + nextAnchor.getBlockX() + ", " + nextAnchor.getBlockY() + ", " + nextAnchor.getBlockZ());
-            Deepwither.getInstance().getLogger().info("========================================");
+            // 4. 次のアンカー計算
+            // 「入口から出口へのベクトル」だけを回転させて足せばOK
+            BlockVector3 rotatedExitVec = part.getRotatedExitVector(rotation);
 
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (Exception e) { // FAWE/WorldEdit exception
+            return pasteLoc.clone().add(
+                    rotatedExitVec.getX(),
+                    rotatedExitVec.getY(),
+                    rotatedExitVec.getZ()
+            );
+
+        } catch (Exception e) {
             e.printStackTrace();
         }
 
