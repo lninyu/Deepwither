@@ -54,14 +54,19 @@ public class PlayerInventoryRestrictor implements Listener {
                     event.setCancelled(true);
                 }
             }
-            case MOVE_TO_OTHER_INVENTORY -> { // fixme: クラフト時、ホットバーに2本目の武器を入れれるバグがある
-                if (event.getSlotType() == InventoryType.SlotType.RESULT) return;
+            case MOVE_TO_OTHER_INVENTORY -> {
+                var source = event.getCurrentItem();
+                if (source == null) return;
+
+                if (event.getSlotType() == InventoryType.SlotType.RESULT && isWeapon(source)) {
+                    // fixme: クラフト時、ホットバーに2本目の武器を入れれるバグがある
+                    // 暫定的な対処: シフトクリックでクラフトできないように
+                    event.setCancelled(true);
+                    return;
+                }
 
                 var clicked = event.getClickedInventory();
                 if (clicked == null) return;
-
-                var source = event.getCurrentItem();
-                if (source == null) return;
 
                 var inventory = player.getInventory();
 
