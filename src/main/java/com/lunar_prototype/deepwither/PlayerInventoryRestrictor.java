@@ -167,7 +167,12 @@ public class PlayerInventoryRestrictor implements Listener {
         if (newAmount < amount) {
             sendPickupMessage(player, cloned, amount - newAmount);
             playPickupSound(player);
-            picked.setItemStack(source);
+
+            if (source.isEmpty()) {
+                picked.remove();
+            } else {
+                picked.setItemStack(source);
+            }
         }
     }
 
