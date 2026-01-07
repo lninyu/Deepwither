@@ -18,6 +18,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -125,7 +126,8 @@ public class PlayerInventoryRestrictor implements Listener {
         if (event.getWhoClicked() instanceof Player player && isWeapon(event.getOldCursor()) && hasWeaponInHotbar(player.getInventory())) {
             var view = event.getView();
 
-            if (event.getRawSlots().removeIf(raw -> {
+            var rawSlots = new HashSet<>(event.getRawSlots());
+            if (rawSlots.removeIf(raw -> {
                 var inv = view.getInventory(raw);
 
                 if (inv != null && inv.getType() == InventoryType.PLAYER) {
