@@ -3,6 +3,7 @@ package com.lunar_prototype.deepwither.dungeon;
 import com.lunar_prototype.deepwither.Deepwither;
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
 import com.sk89q.worldedit.math.BlockVector3;
+import com.sk89q.worldedit.math.transform.AffineTransform;
 import com.sk89q.worldedit.world.block.BlockTypes;
 
 public class DungeonPart {
@@ -41,11 +42,13 @@ public class DungeonPart {
         }
 
         if (!foundEntry) {
-            Deepwither.getInstance().getLogger().warning("[" + fileName + "] Warning: No Gold Block (Entry) found. Assuming (0,0,0).");
+            Deepwither.getInstance().getLogger()
+                    .warning("[" + fileName + "] Warning: No Gold Block (Entry) found. Assuming (0,0,0).");
         }
         // ROOMや終端用パーツの場合、出口がないことは正常なのでWarningを出さない判定にしても良い
         if (!foundExit && !type.equals("ROOM")) {
-            Deepwither.getInstance().getLogger().info("[" + fileName + "] Info: No Iron Block (Exit) found. (Normal for dead-ends)");
+            Deepwither.getInstance().getLogger()
+                    .info("[" + fileName + "] Info: No Iron Block (Exit) found. (Normal for dead-ends)");
         }
     }
 
@@ -69,29 +72,34 @@ public class DungeonPart {
      * ここでは一般的な座標回転行列に基づいています。
      */
     private BlockVector3 transformVector(BlockVector3 vec, int angle) {
-        if (vec == null) return BlockVector3.ZERO;
+        if (vec == null)
+            return BlockVector3.ZERO;
 
         int normalizedAngle = angle % 360;
-        if (normalizedAngle < 0) normalizedAngle += 360;
-
-        int x = vec.getX();
-        int y = vec.getY();
-        int z = vec.getZ();
+        if (normalizedAngle < 0)
+            normalizedAngle += 360;
 
         // WorldEditの回転仕様に合わせて調整 (通常: 時計回り)
-        switch (normalizedAngle) {
-            case 90:
-                return BlockVector3.at(-z, y, x);
-            case 180:
-                return BlockVector3.at(-x, y, -z);
-            case 270:
-                return BlockVector3.at(z, y, -x);
-            case 0:
-            default:
-                return vec;
-        }
+        // Use WorldEdit's AffineTransform to ensure consistent rotation logic with
+        // clipboard operations
+        AffineTransform transform = new AffineTransform().rotateY(normalizedAngle);
+        var v3 = transform.apply(vec.toVector3());
+        return BlockVector3.at(v3.getX(), v3.getY(), v3.getZ());
     }
 
-    public String getFileName() { return fileName; }
-    public String getType() { return type; }
+    public BlockVector3 getEntryOffset() {
+        return entryOffset;
+    }
+
+    public BlockVector3 getExitOffset() {
+        return exitOffset;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public String getType() {
+        return type;
+    }
 }

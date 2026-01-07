@@ -1,2 +1,4 @@
 /target/
 /.paper-nms/
+.vscode/settings.json
+lib/deepwither-1.0-SNAPSHOT.jar

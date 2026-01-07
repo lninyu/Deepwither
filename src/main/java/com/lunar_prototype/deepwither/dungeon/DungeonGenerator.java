@@ -69,7 +69,8 @@ public class DungeonGenerator {
 
     private void scanPartMarkers(DungeonPart part, File file) {
         ClipboardFormat format = ClipboardFormats.findByFile(file);
-        if (format == null) return;
+        if (format == null)
+            return;
 
         try (ClipboardReader reader = format.getReader(new FileInputStream(file))) {
             Clipboard clipboard = reader.read();
@@ -144,6 +145,9 @@ public class DungeonGenerator {
             BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
             BlockVector3 rotatedExit = part.getRotatedExitOffset(rotation);
 
+            Deepwither.getInstance().getLogger().info(String.format("[%s] Rot:%d | EntryOffset:%s -> Rotated:%s",
+                    part.getFileName(), rotation, part.getEntryOffset(), rotatedEntry));
+
             // 2. 貼り付け基準点 (Paste Origin) の計算
             // アンカー位置に、このパーツの「入口(Gold)」が重なるように座標を引く
             double pasteX = anchor.getX() - rotatedEntry.getX();
@@ -151,6 +155,8 @@ public class DungeonGenerator {
             double pasteZ = anchor.getZ() - rotatedEntry.getZ();
 
             BlockVector3 pasteVector = BlockVector3.at(pasteX, pasteY, pasteZ);
+            Deepwither.getInstance().getLogger().info(String.format("  -> Anchor:%s | PasteOrigin:%s",
+                    anchor.toVector(), pasteVector));
 
             // 3. WorldEdit で貼り付け
             try (EditSession editSession = WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(world))) {
@@ -172,11 +178,11 @@ public class DungeonGenerator {
             Location nextAnchor = new Location(world,
                     pasteX + rotatedExit.getX(),
                     pasteY + rotatedExit.getY(),
-                    pasteZ + rotatedExit.getZ()
-            );
+                    pasteZ + rotatedExit.getZ());
 
-            // デバッグログ: つながりを確認したい場合に有効
-            // Deepwither.getInstance().getLogger().info("  Placed at: " + pasteVector + " -> Next Anchor: " + nextAnchor.toVector());
+            Deepwither.getInstance().getLogger().info(String.format("  -> ExitOffset:%s -> Rotated:%s",
+                    part.getExitOffset(), rotatedExit));
+            Deepwither.getInstance().getLogger().info("  -> Next Anchor: " + nextAnchor.toVector());
 
             return nextAnchor;
 
