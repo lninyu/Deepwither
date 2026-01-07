@@ -23,6 +23,9 @@ public class DungeonPart {
 
     public void scanMarkers(Clipboard clipboard) {
         BlockVector3 origin = clipboard.getOrigin();
+        Deepwither.getInstance().getLogger().info(String.format("[%s] Scanning Part (ID:%d). Origin:%s",
+                fileName, System.identityHashCode(this), origin));
+
         boolean foundEntry = false;
         boolean foundExit = false;
 

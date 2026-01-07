@@ -145,8 +145,10 @@ public class DungeonGenerator {
             BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
             BlockVector3 rotatedExit = part.getRotatedExitOffset(rotation);
 
-            Deepwither.getInstance().getLogger().info(String.format("[%s] Rot:%d | EntryOffset:%s -> Rotated:%s",
-                    part.getFileName(), rotation, part.getEntryOffset(), rotatedEntry));
+            Deepwither.getInstance().getLogger()
+                    .info(String.format("[%s] (ObjID:%d) Rot:%d | EntryOffset:%s -> Rotated:%s",
+                            part.getFileName(), System.identityHashCode(part), rotation, part.getEntryOffset(),
+                            rotatedEntry));
 
             // 2. 貼り付け基準点 (Paste Origin) の計算
             // アンカー位置に、このパーツの「入口(Gold)」が重なるように座標を引く
