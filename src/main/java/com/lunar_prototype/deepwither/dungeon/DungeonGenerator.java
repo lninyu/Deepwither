@@ -71,47 +71,53 @@ public class DungeonGenerator {
     }
 
     /**
-     * 回転を考慮して一直線のダンジョンを生成する
+     * 生成のメイン処理
      */
     public void generateStraight(World world, int hallwayCount, int rotation) {
-        Location nextAnchor = new Location(world, 0, 64, 0);
+        // 最初の基準点 (ここに入口が来る)
+        Location currentAnchor = new Location(world, 0, 64, 0);
 
         // 1. Entrance
         DungeonPart entrance = findPartByType("ENTRANCE");
         if (entrance != null) {
-            nextAnchor = pasteAndGetNextAnchor(nextAnchor, entrance, rotation);
+            currentAnchor = pasteAndGetNextAnchor(currentAnchor, entrance, rotation);
         }
 
         // 2. Hallways
         DungeonPart hallway = findPartByType("HALLWAY");
         if (hallway != null) {
             for (int i = 0; i < hallwayCount; i++) {
-                nextAnchor = pasteAndGetNextAnchor(nextAnchor, hallway, rotation);
+                currentAnchor = pasteAndGetNextAnchor(currentAnchor, hallway, rotation);
             }
         }
+
+        Deepwither.getInstance().getLogger().info("生成完了");
     }
 
     private Location pasteAndGetNextAnchor(Location anchor, DungeonPart part, int rotation) {
-        File file = new File(dungeonFolder, part.getFileName());
-
-        // 回転後のオフセットを取得
+        // 1. その回転角での入口と出口の「見かけ上の位置」を計算
         BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
         BlockVector3 rotatedExit = part.getRotatedExitOffset(rotation);
 
-        // 貼り付け位置(Origin)の計算
-        Location pasteLoc = anchor.clone();
-        if (rotatedEntry != null) {
-            pasteLoc.subtract(rotatedEntry.getX(), rotatedEntry.getY(), rotatedEntry.getZ());
-        }
+        // 2. 貼り付け位置を決定
+        // アンカー(出口)に対して、新しいパーツの入口(rotatedEntry)が重なるように引き算
+        Location pasteLoc = anchor.clone().subtract(
+                rotatedEntry.getX(),
+                rotatedEntry.getY(),
+                rotatedEntry.getZ()
+        );
 
-        // FAWEで回転を指定して貼り付け
-        SchematicUtil.paste(pasteLoc, file, rotation);
+        // 3. 貼り付け
+        // ※ ここで回転を適用。FAWEは「pasteLoc」を中心に回転させる
+        SchematicUtil.paste(pasteLoc, new File(dungeonFolder, part.getFileName()), rotation);
 
-        // 次のアンカーを計算
-        if (rotatedExit != null) {
-            return pasteLoc.clone().add(rotatedExit.getX(), rotatedExit.getY(), rotatedExit.getZ());
-        }
-        return anchor.clone().add(0, 0, 10); // fallback
+        // 4. 次のアンカー(出口)を計算
+        // 貼り付けた場所から、回転後の出口(rotatedExit)を足し算
+        return pasteLoc.clone().add(
+                rotatedExit.getX(),
+                rotatedExit.getY(),
+                rotatedExit.getZ()
+        );
     }
 
     private DungeonPart findPartByType(String type) {
