@@ -1,6 +1,8 @@
 package com.lunar_prototype.deepwither;
 
 import io.lumine.mythic.bukkit.MythicBukkit;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.*;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
@@ -86,7 +88,11 @@ public class AnimationListener implements Listener {
         ItemMeta meta = item.getItemMeta();
         if (!meta.hasLore()) return false;
 
-        for (String line : meta.getLore()) {
+        var lore = meta.lore();
+        if (lore == null) return false;
+
+        for (Component component : lore) {
+            var line = PlainTextComponentSerializer.plainText().serialize(component);
             // §7カテゴリ:§f のカラーコードなどは環境に合わせて微調整してください
             if (line.contains("カテゴリ:" + category) || line.contains("カテゴリ:§f" + category)) {
                 return true;
