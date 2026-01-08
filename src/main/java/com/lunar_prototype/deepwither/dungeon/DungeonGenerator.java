@@ -188,6 +188,9 @@ public class DungeonGenerator {
         List<BlockVector3> rotatedExits = currentPart.getRotatedExitOffsets(currentRot);
         int exitIndex = 0;
 
+        Deepwither.getInstance().getLogger().info(String.format("Depth %d: Processing part %s (Rot %d). %d Exits.",
+                depth, currentPart.getFileName(), currentRot, rotatedExits.size()));
+
         // Process each exit (random shuffle for variety?)
         for (BlockVector3 exitOffset : rotatedExits) {
             int originalExitIndex = exitIndex++; // To track which original exit this corresponds to if needed
@@ -201,17 +204,25 @@ public class DungeonGenerator {
             // Map Vector to Yaw(0=South, 90=West, 180=North, 270=East)
             int exitWorldYaw = getVectorYaw(exitOffset.getX(), exitOffset.getZ());
 
+            Deepwither.getInstance().getLogger().info(
+                    String.format("  -> Exit#%d Offset:%s WorldYaw:%d", originalExitIndex, exitOffset, exitWorldYaw));
+
             // Try to place a part
-            if (random.nextDouble() < 0.8) {
+            // Force 100% for debug
+            if (random.nextDouble() < 1.0) {
                 // Select random Hallway or Room
-                String type = (random.nextDouble() > 0.7) ? "ROOM" : "HALLWAY";
+                // String type = (random.nextDouble() > 0.7) ? "ROOM" : "HALLWAY";
+                // Only try to place Hallways first to keep it simple? No, mixed.
+                String type = (random.nextDouble() > 0.5) ? "ROOM" : "HALLWAY";
 
                 List<DungeonPart> candidates = partList.stream()
                         .filter(p -> p.getType().equals(type))
                         .collect(Collectors.toList());
 
-                if (candidates.isEmpty())
+                if (candidates.isEmpty()) {
+                    Deepwither.getInstance().getLogger().warning("  -> No candidates for type " + type);
                     continue;
+                }
 
                 DungeonPart nextPart = candidates.get(random.nextInt(candidates.size()));
 
@@ -225,8 +236,8 @@ public class DungeonGenerator {
                 int nextRotation = (exitWorldYaw - nextPart.getIntrinsicYaw() + 360) % 360;
 
                 Deepwither.getInstance().getLogger()
-                        .info(String.format("Branch[%d]: ExitYaw=%d, NextPart(%s) Intrinsic=%d -> Rot=%d",
-                                depth, exitWorldYaw, nextPart.getFileName(), nextPart.getIntrinsicYaw(), nextRotation));
+                        .info(String.format("  -> Trying %s. Intrinsic=%d -> Rot=%d",
+                                nextPart.getFileName(), nextPart.getIntrinsicYaw(), nextRotation));
 
                 // Calculate Origin for Next Part
                 BlockVector3 nextEntryRotated = nextPart.getRotatedEntryOffset(nextRotation);
@@ -237,7 +248,7 @@ public class DungeonGenerator {
                     // Success, recurse
                     generateRecursive(world, nextPart, nextOrigin, nextRotation, depth + 1, maxDepth);
                 } else {
-                    Deepwither.getInstance().getLogger().info("Skipped part due to collision.");
+                    Deepwither.getInstance().getLogger().info("  -> Collision or Paste Failed.");
                 }
             }
         }

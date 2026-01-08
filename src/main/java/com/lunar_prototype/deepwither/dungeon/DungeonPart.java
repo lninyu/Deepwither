@@ -88,40 +88,19 @@ public class DungeonPart {
 
     private void calculateIntrinsicYaw() {
         if (exitOffsets.isEmpty()) {
-            // Default to South (0 deg) or whatever
             this.intrinsicYaw = 0;
             return;
         }
 
-        // Use first exit for primary flow
         BlockVector3 primExit = exitOffsets.get(0);
         int dx = primExit.getX() - entryX;
         int dz = primExit.getZ() - entryZ;
 
-        // Calculate Yaw
+        Deepwither.getInstance().getLogger().info(String.format(
+                "[%s] CalcYaw: Entry(%d,%d,%d) Exit(%s) -> d(%d, %d). |dx|=%d, |dz|=%d",
+                fileName, entryX, entryY, entryZ, primExit, dx, dz, Math.abs(dx), Math.abs(dz)));
+
         if (Math.abs(dx) > Math.abs(dz)) {
-            // East (+X) -> 270 (WE Rot? No let's stick to standard WE 90 deg steps)
-            // If we want "Direction", let's map to:
-            // +Z (South) -> 0
-            // -X (West) -> 90
-            // -Z (North) -> 180
-            // +X (East) -> 270
-            // Wait, WE rotateY(90): x->-z, z->x.
-            // If vector is (0,1) (+Z South). Rot 90 -> (-1,0) (West).
-            // So Rot 90 turns South to West.
-            // Rot 180 turns South to North.
-            // Rot 270 turns South to East.
-
-            // WE Coordinates:
-            // +X = East? No, +X is usually East in MC.
-            // +Z = South.
-
-            // Mapping vector to Rot 90 steps from South(0):
-            // South (+Z) -> 0.
-            // West (-X) -> 90.
-            // North (-Z) -> 180.
-            // East (+X) -> 270.
-
             this.intrinsicYaw = (dx > 0) ? 270 : 90;
         } else {
             this.intrinsicYaw = (dz > 0) ? 0 : 180;
