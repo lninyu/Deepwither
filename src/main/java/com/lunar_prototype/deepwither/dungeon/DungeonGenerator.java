@@ -210,7 +210,11 @@ public class DungeonGenerator {
             // int exitWorldYaw = getVectorYaw(exitOffset.getX(), exitOffset.getZ()); // OLD
             // BUGGY WAY
 
-            if (random.nextDouble() < 0.8) {
+            // Force extend if it's the only exit (to prevent premature dead-ends)
+            boolean forceExtend = rotatedExits.size() == 1;
+            double chance = forceExtend ? 1.0 : 0.8;
+
+            if (random.nextDouble() < chance) {
                 // Try multiple types (shuffle order)
                 List<String> typesToTry = new ArrayList<>();
                 // 60% chance to prioritize ROOM if depth allows
