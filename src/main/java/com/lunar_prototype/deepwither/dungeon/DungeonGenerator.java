@@ -16,17 +16,80 @@ import com.sk89q.worldedit.session.ClipboardHolder;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.Material;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
+import java.util.stream.Collectors;
 
 public class DungeonGenerator {
     private final String dungeonName;
     private final List<DungeonPart> partList = new ArrayList<>();
     private final File dungeonFolder;
+    private final Random random = new Random();
+
+    // Store placed parts for collision detection
+    private final List<PlacedPart> placedParts = new ArrayList<>();
+
+    private static class PlacedPart {
+        DungeonPart part;
+        BlockVector3 minBound; // World coordinates
+        BlockVector3 maxBound; // World coordinates
+
+        public PlacedPart(DungeonPart part, BlockVector3 origin, int rotation) {
+            this.part = part;
+            // Calculate world bounds based on rotation
+            BlockVector3 min = part.getMinPoint();
+            BlockVector3 max = part.getMaxPoint();
+
+            // Transform local bounds to world bounds
+            // This is a simplified bounding box calculation (AABB)
+            // For precise collision, we'd need to rotate all 8 corners and find min/max
+            List<BlockVector3> corners = new ArrayList<>();
+            corners.add(rotate(min.getX(), min.getY(), min.getZ(), rotation));
+            corners.add(rotate(min.getX(), min.getY(), max.getZ(), rotation));
+            corners.add(rotate(min.getX(), max.getY(), min.getZ(), rotation));
+            corners.add(rotate(min.getX(), max.getY(), max.getZ(), rotation));
+            corners.add(rotate(max.getX(), min.getY(), min.getZ(), rotation));
+            corners.add(rotate(max.getX(), min.getY(), max.getZ(), rotation));
+            corners.add(rotate(max.getX(), max.getY(), min.getZ(), rotation));
+            corners.add(rotate(max.getX(), max.getY(), max.getZ(), rotation));
+
+            int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+            int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
+
+            for (BlockVector3 v : corners) {
+                minX = Math.min(minX, v.getX());
+                minY = Math.min(minY, v.getY());
+                minZ = Math.min(minZ, v.getZ());
+                maxX = Math.max(maxX, v.getX());
+                maxY = Math.max(maxY, v.getY());
+                maxZ = Math.max(maxZ, v.getZ());
+            }
+
+            this.minBound = BlockVector3.at(minX, minY, minZ).add(origin);
+            this.maxBound = BlockVector3.at(maxX, maxY, maxZ).add(origin);
+        }
+
+        private BlockVector3 rotate(int x, int y, int z, int angle) {
+            AffineTransform transform = new AffineTransform().rotateY(angle);
+            var v = transform.apply(BlockVector3.at(x, y, z).toVector3());
+            return BlockVector3.at(Math.round(v.getX()), Math.round(v.getY()), Math.round(v.getZ()));
+        }
+
+        public boolean intersects(PlacedPart other) {
+            // AABB Collision Check with 1 block buffer to prevent tight touching
+            return this.minBound.getX() < other.maxBound.getX() - 1 && this.maxBound.getX() > other.minBound.getX() + 1
+                    &&
+                    this.minBound.getY() < other.maxBound.getY() && this.maxBound.getY() > other.minBound.getY() &&
+                    this.minBound.getZ() < other.maxBound.getZ() - 1
+                    && this.maxBound.getZ() > other.minBound.getZ() + 1;
+        }
+    }
 
     public DungeonGenerator(String dungeonName) {
         this.dungeonName = dungeonName;
@@ -81,210 +144,238 @@ public class DungeonGenerator {
     }
 
     /**
-     * 生成のメイン処理 (一本道)
-     * Start(Entrance) -> Hallway * count -> End(Entrance)
+     * 新しい分岐生成メソッド (再帰的)
      */
-    public void generateStraight(World world, int hallwayCount, int rotation) {
-        Deepwither.getInstance().getLogger().info("=== 生成開始: Straight Dungeon (Rot:" + rotation + ") ===");
+    public void generateBranching(World world, int maxDepth, int startRotation) {
+        placedParts.clear();
+        Deepwither.getInstance().getLogger().info("=== 生成開始: Branching Dungeon (MaxDepth:" + maxDepth + ") ===");
 
-        // 最初の基準点 (ここに入口のGold Blockが重なるように配置される)
-        Location currentAnchor = new Location(world, 0, 64, 0);
+        // 基準点
+        BlockVector3 startOrigin = BlockVector3.at(0, 64, 0);
 
-        // --- 1. START (Entrance) ---
-        DungeonPart entrancePart = findPartByType("ENTRANCE");
-        if (entrancePart != null) {
-            Deepwither.getInstance().getLogger().info("> Placing Start (ENTRANCE)");
-            // Rotate Start 180 degrees to match Hallway flow
-            currentAnchor = pastePart(world, currentAnchor, entrancePart, rotation + 180);
-        } else {
-            Deepwither.getInstance().getLogger().warning("Type 'ENTRANCE' not found! Skipping start.");
-        }
-
-        // --- 2. MIDDLE (Hallways) ---
-        DungeonPart hallwayPart = findPartByType("HALLWAY");
-        if (hallwayPart != null) {
-            for (int i = 0; i < hallwayCount; i++) {
-                Deepwither.getInstance().getLogger().info("> Placing Hallway #" + (i + 1));
-                currentAnchor = pastePart(world, currentAnchor, hallwayPart, rotation);
-            }
-        } else {
-            Deepwither.getInstance().getLogger().warning("Type 'HALLWAY' not found! Skipping hallways.");
-        }
-
-        // --- 3. END (Entrance as Exit) ---
-        // 終端としてもう一度 ENTRANCE を置く (あるいは EXIT タイプがあればそれを使う)
-        if (entrancePart != null) {
-            Deepwither.getInstance().getLogger().info("> Placing End (ENTRANCE)");
-            // 終端は「出口(Iron)」を接続点として、ダンジョンの外側へ向けて配置する
-            // Entranceパーツは通常 Entry(Door)->Exit(Connector) の向き
-            // ダンジョン終端では Connector(Exit) -> Door(Entry) と逆向きに使いたい
-            // したがって、ExitをAnchorに合わせ、回転はStartと同じ(90度=North向き)にすると
-            // Roomは South(Anchor) -> North(Anchor+6) ではなく...
-            // Wait.
-            // Hallway Flow is South (+Z).
-            // We want Connector -> Door flow to also be South (+Z).
-            // Schematic: Door(0) -> Connector(6) is +X.
-            // We want Connector(6) -> Door(0) to be South (+Z).
-            // So 6->0 is +Z. <=> 0->6 is -Z (North).
-            // North is 90 degrees.
-            // So Rotation should be 90 (Same as Hallway).
-
-            pastePartByExit(world, currentAnchor, entrancePart, rotation);
-        }
-
-        Deepwither.getInstance().getLogger().info("=== 生成完了 ===");
-    }
-
-    /**
-     * パーツの「出口(Iron)」を基準(Anchor)に合わせて貼り付ける
-     * 主に終端パーツ用
-     */
-    private void pastePartByExit(World world, Location anchor, DungeonPart part, int rotation) {
-        File schemFile = new File(dungeonFolder, part.getFileName());
-        ClipboardFormat format = ClipboardFormats.findByFile(schemFile);
-
-        if (format == null) {
-            Deepwither.getInstance().getLogger().severe("Format invalid: " + part.getFileName());
+        // 1. START Placement
+        DungeonPart startPart = findPartByType("ENTRANCE"); // Or reuse ENTRANCE as start
+        if (startPart == null) {
+            Deepwither.getInstance().getLogger().warning("No ENTRANCE part found!");
             return;
         }
 
-        try (ClipboardReader reader = format.getReader(new FileInputStream(schemFile))) {
-            Clipboard clipboard = reader.read();
+        // Place Start (Assume safe/no collision at origin)
+        // Adjust start rotation to face the desired direction?
+        // Typically ENTRANCE exits to +Z (South), so Rotation 0 -> Exits South.
+        // If we want it to face South, we use startRotation + 180 (similar to straight
+        // gen pivot)
+        // Let's stick to straight gen logic: first part is rotated 180 to align?
+        // Actually, let's just place it at Rotation 0 and assume standard flow.
 
-            BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
-            BlockVector3 rotatedExit = part.getRotatedExitOffset(rotation);
+        // For 'straight' gen compat:
+        int finalStartRotation = startRotation + 180;
 
-            Deepwither.getInstance().getLogger()
-                    .info(String.format("[EndPlacement] Rot:%d | ExitOffset:%s -> Rotated:%s",
-                            rotation, part.getExitOffset(), rotatedExit));
+        if (pastePart(world, startOrigin, startPart, finalStartRotation)) {
+            // Recurse
+            generateRecursive(world, startPart, startOrigin, finalStartRotation, 1, maxDepth);
+        }
 
-            // 出口(Exit)を基準点(Anchor)に合わせる
-            // PasteOrigin = Anchor - RotatedExit
-            double pasteX = anchor.getX() - rotatedExit.getX();
-            double pasteY = anchor.getY() - rotatedExit.getY();
-            double pasteZ = anchor.getZ() - rotatedExit.getZ();
+        Deepwither.getInstance().getLogger().info("=== 生成完了: Placed " + placedParts.size() + " parts ===");
+    }
 
-            BlockVector3 pasteVector = BlockVector3.at(pasteX, pasteY, pasteZ);
+    // Recursive Step
+    private void generateRecursive(World world, DungeonPart currentPart, BlockVector3 currentOrigin, int currentRot,
+            int depth, int maxDepth) {
+        if (depth >= maxDepth)
+            return;
 
-            Deepwither.getInstance().getLogger().info(String.format("  -> Anchor:%s | PasteOrigin:%s (Aligned by EXIT)",
-                    anchor.toVector(), pasteVector));
+        List<BlockVector3> rotatedExits = currentPart.getRotatedExitOffsets(currentRot);
 
-            try (EditSession editSession = WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(world))) {
-                ClipboardHolder holder = new ClipboardHolder(clipboard);
-                holder.setTransform(new AffineTransform().rotateY(rotation));
+        // Process each exit (random shuffle for variety?)
+        for (BlockVector3 exitOffset : rotatedExits) {
 
-                Operation operation = holder
-                        .createPaste(editSession)
-                        .to(pasteVector)
-                        .ignoreAirBlocks(true)
-                        .build();
-                Operations.complete(operation);
+            // Calculate world position of this exit (Connection Point)
+            BlockVector3 connectionPoint = currentOrigin.add(exitOffset);
+
+            // Determine Exit Direction (Local Yaw)
+            // Heuristic: Check relative position of Exit vs Center of Part
+            // But since we already have the rotated offset, we can check relative to
+            // (0,0,0) (pivot)?
+            // No, the pivot is "Entry".
+            // We need to know which way the exit points to rotate the NEXT part correctly.
+
+            // Heuristic: Check dominant axis of the rotated exit offset relative to ENTRY
+            // (0,0,0)
+            // Wait, this assumes linear flow from Entry->Exit.
+            // Better: Check the unrotated exit offset vs unrotated center.
+            // Then rotate that direction.
+
+            int exitDirBase = getExitDirection(currentPart, exitOffset, currentRot);
+
+            // Next Part Rotation:
+            // If Exit points North (180), Next Part (which flows South 0) must trigger?
+            // Connection Logic: Exit(Face) meets Entry(Face).
+            // Standard Part Entry faces "Backwards" (South/Z+ is flow, so Entry is on North
+            // face).
+            // So if Exit faces North, Next Part Rot = 0? (Faces North? No, Flows South).
+            // Let's simplify:
+            // If Exit is +Z relative to origin -> Next part continues +Z -> Rot 0 (relative
+            // to current).
+            // If Exit is +X -> Next part goes +X -> Rot -90 (relative).
+
+            // Target Rotation for next part
+            int nextRotation = (currentRot + exitDirBase) % 360;
+
+            // Try to place a part
+            // 70% chance to branch, decrease with depth?
+            if (random.nextDouble() < 0.8) {
+                // Select random Hallway or Room
+                String type = (random.nextDouble() > 0.7) ? "ROOM" : "HALLWAY";
+
+                // If deep, maybe force a small room or cap?
+                List<DungeonPart> candidates = partList.stream()
+                        .filter(p -> p.getType().equals(type))
+                        .collect(Collectors.toList());
+
+                if (candidates.isEmpty())
+                    continue;
+
+                DungeonPart nextPart = candidates.get(random.nextInt(candidates.size()));
+
+                // Calculate Origin for Next Part
+                // NextPart.Entry matches ConnectionPoint
+                // NextPart Origin = ConnectionPoint - NextPart.RotatedEntry
+                BlockVector3 nextEntryRotated = nextPart.getRotatedEntryOffset(nextRotation);
+                BlockVector3 nextOrigin = connectionPoint.subtract(nextEntryRotated);
+
+                // Try paste
+                if (pastePart(world, nextOrigin, nextPart, nextRotation)) {
+                    // Success, recurse
+                    generateRecursive(world, nextPart, nextOrigin, nextRotation, depth + 1, maxDepth);
+                } else {
+                    // Handle collision (maybe place a wall?)
+                    // placeCap(world, connectionPoint, nextRotation);
+                }
             }
-
-            // Remove marker blocks logic copy
-            BlockVector3 worldEntryPos = pasteVector.add(rotatedEntry);
-            BlockVector3 worldExitPos = pasteVector.add(rotatedExit);
-            removeMarker(world, worldEntryPos, org.bukkit.Material.GOLD_BLOCK);
-            removeMarker(world, worldExitPos, org.bukkit.Material.IRON_BLOCK);
-
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
-    /**
-     * パーツを貼り付けて、次の接続点(Anchor)を返す
-     * * ロジック:
-     * PreviousAnchor == PasteOrigin + RotatedEntryOffset
-     * よって、
-     * PasteOrigin = PreviousAnchor - RotatedEntryOffset
-     * * NextAnchor = PasteOrigin + RotatedExitOffset
-     */
-    private Location pastePart(World world, Location anchor, DungeonPart part, int rotation) {
+    // Determine the direction (yaw) an exit implies relative to the part flow
+    private int getExitDirection(DungeonPart part, BlockVector3 rotatedExitOffsetPos, int currentPartRotation) {
+        // We know the exit's position relative to the anchor (entry).
+        // Since we don't have metadata, assume standard rectilinear exits.
+
+        // Un-rotate to get local offset
+        // Actually, easier to check dominant axis of the *rotated* offset?
+        // But the entry might be anywhere.
+
+        // Let's look at the part's original setup.
+        // We need the index of this exit to find its original position?
+        // DungeonPart only gives us list of ExitOffsets (original).
+        // We can match them?
+
+        // Let's rely on the Rotated Vector directly.
+        // If (Offset) has dominant +Z -> Direction is 0 (Forward loop).
+        // If +X -> Direction -90 (Right).
+        // If -X -> Direction 90 (Left).
+        // If -Z -> Direction 180 (Back? unlikely unless complex).
+
+        // Issue: This assumes Entry is "behind" Exit.
+        // For a U-turn room, Exit might be at same Z but different X.
+
+        // Let's stick to the "Dominate Axis" of the offset vector.
+        int x = rotatedExitOffsetPos.getX();
+        int z = rotatedExitOffsetPos.getZ();
+
+        if (Math.abs(x) > Math.abs(z)) {
+            return (x > 0) ? 270 : 90; // worldedit: 90 is West (-X)?
+            // WE Rot 90: +Z -> -X (West).
+            // So +X (East) needs Rot 270.
+            // -X (West) needs Rot 90.
+        } else {
+            return (z > 0) ? 0 : 180;
+        }
+
+        // NOTE: This angle is "Relative to World", which is what we need for the next
+        // rotation?
+        // Wait, if I say "nextRotation = currentRot + exitDir", then exitDir must be
+        // relative.
+        // This function calculates absolute deviation from Entry?
+        // No, this calculates the Absolute Direction of the vector Entry->Exit.
+        // So this return value IS the `nextRotation` directly (assuming Entry is
+        // 0,0,0).
+
+        // So: return (z > 0) ? 0 : 180; is effectively returning the Absolute Rotation.
+        // We don't need to add `currentRot` again if we calculated this from the
+        // Rotated Offset.
+        // Correct.
+    }
+
+    private boolean pastePart(World world, BlockVector3 origin, DungeonPart part, int rotation) {
+        // 1. Create Collision Box Candidate
+        PlacedPart candidate = new PlacedPart(part, origin, rotation);
+
+        // 2. Check overlap
+        for (PlacedPart existing : placedParts) {
+            if (candidate.intersects(existing)) {
+                Deepwither.getInstance().getLogger().info("Collision detected at " + origin);
+                return false;
+            }
+        }
+
+        // 3. Paste
         File schemFile = new File(dungeonFolder, part.getFileName());
         ClipboardFormat format = ClipboardFormats.findByFile(schemFile);
-
-        if (format == null) {
-            Deepwither.getInstance().getLogger().severe("Format invalid: " + part.getFileName());
-            return anchor;
-        }
+        if (format == null)
+            return false;
 
         try (ClipboardReader reader = format.getReader(new FileInputStream(schemFile))) {
             Clipboard clipboard = reader.read();
 
-            // 1. オフセット計算
-            BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
-            BlockVector3 rotatedExit = part.getRotatedExitOffset(rotation);
-
-            Deepwither.getInstance().getLogger()
-                    .info(String.format("[%s] (ObjID:%d) Rot:%d | EntryOffset:%s -> Rotated:%s",
-                            part.getFileName(), System.identityHashCode(part), rotation, part.getEntryOffset(),
-                            rotatedEntry));
-
-            // 2. 貼り付け基準点 (Paste Origin) の計算
-            // アンカー位置に、このパーツの「入口(Gold)」が重なるように座標を引く
-            double pasteX = anchor.getX() - rotatedEntry.getX();
-            double pasteY = anchor.getY() - rotatedEntry.getY();
-            double pasteZ = anchor.getZ() - rotatedEntry.getZ();
-
-            BlockVector3 pasteVector = BlockVector3.at(pasteX, pasteY, pasteZ);
-            Deepwither.getInstance().getLogger().info(String.format("  -> Anchor:%s | PasteOrigin:%s",
-                    anchor.toVector(), pasteVector));
-
-            // 3. WorldEdit で貼り付け
             try (EditSession editSession = WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(world))) {
                 ClipboardHolder holder = new ClipboardHolder(clipboard);
-
-                // ここでY軸回転を指定
                 holder.setTransform(new AffineTransform().rotateY(rotation));
 
                 Operation operation = holder
                         .createPaste(editSession)
-                        .to(pasteVector)
+                        .to(origin)
                         .ignoreAirBlocks(true)
                         .build();
                 Operations.complete(operation);
             }
 
-            // Remove marker blocks (Gold/Iron)
-            // Calculate world Key positions
-            BlockVector3 worldEntryPos = pasteVector.add(rotatedEntry);
-            BlockVector3 worldExitPos = pasteVector.add(rotatedExit);
+            // Remove Markers logic...
+            BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
+            removeMarker(world, origin.add(rotatedEntry), Material.GOLD_BLOCK);
 
-            removeMarker(world, worldEntryPos, org.bukkit.Material.GOLD_BLOCK);
-            removeMarker(world, worldExitPos, org.bukkit.Material.IRON_BLOCK);
+            for (BlockVector3 exit : part.getRotatedExitOffsets(rotation)) {
+                removeMarker(world, origin.add(exit), Material.IRON_BLOCK);
+            }
 
-            // 4. 次の接続点 (Next Anchor) の計算
-            // 貼り付け基準点(Origin) + 出口オフセット(Iron)
-            Location nextAnchor = new Location(world,
-                    pasteX + rotatedExit.getX(),
-                    pasteY + rotatedExit.getY(),
-                    pasteZ + rotatedExit.getZ());
-
-            Deepwither.getInstance().getLogger().info(String.format("  -> ExitOffset:%s -> Rotated:%s",
-                    part.getExitOffset(), rotatedExit));
-            Deepwither.getInstance().getLogger().info("  -> Next Anchor: " + nextAnchor.toVector());
-
-            return nextAnchor;
-
+            placedParts.add(candidate);
+            Deepwither.getInstance().getLogger().info("Placed " + part.getType() + " at " + origin);
+            return true;
         } catch (Exception e) {
             e.printStackTrace();
-            return anchor; // エラー時は動かさない
+            return false;
         }
     }
 
-    private void removeMarker(World world, BlockVector3 pos, org.bukkit.Material expectedType) {
+    // Deprecated but kept for compatibility/testing single paths
+    public void generateStraight(World world, int hallwayCount, int rotation) {
+        generateBranching(world, hallwayCount, rotation);
+    }
+
+    private void removeMarker(World world, BlockVector3 pos, Material expectedType) {
         Location loc = new Location(world, pos.getX(), pos.getY(), pos.getZ());
         if (loc.getBlock().getType() == expectedType) {
-            loc.getBlock().setType(org.bukkit.Material.AIR);
-            // Deepwither.getInstance().getLogger().info("Removed marker at " + pos);
+            loc.getBlock().setType(Material.AIR);
         }
     }
 
     private DungeonPart findPartByType(String type) {
-        return partList.stream()
+        // Randomize
+        List<DungeonPart> valid = partList.stream()
                 .filter(p -> p.getType().equals(type))
-                .findFirst()
-                .orElse(null);
+                .collect(Collectors.toList());
+        if (valid.isEmpty())
+            return null;
+        return valid.get(random.nextInt(valid.size()));
     }
 }
