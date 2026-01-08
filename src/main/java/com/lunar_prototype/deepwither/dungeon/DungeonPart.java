@@ -167,6 +167,34 @@ public class DungeonPart {
         return maxPoint;
     }
 
+    public int getExitDirection(BlockVector3 exit) {
+        // Determine direction based on which face the exit is on
+        int tolerance = 1;
+
+        // Check Z faces
+        if (Math.abs(exit.getZ() - maxPoint.getZ()) <= tolerance)
+            return 0; // South (+Z)
+        if (Math.abs(exit.getZ() - minPoint.getZ()) <= tolerance)
+            return 180; // North (-Z)
+
+        // Check X faces
+        if (Math.abs(exit.getX() - maxPoint.getX()) <= tolerance)
+            return 270; // East (+X)
+        if (Math.abs(exit.getX() - minPoint.getX()) <= tolerance)
+            return 90; // West (-X)
+
+        // Fallback to vector heuristic if not on face (should rarely happen for valid
+        // dungeons)
+        Deepwither.getInstance().getLogger().warning("Exit not on bounding box face! Using vector heuristic: " + exit);
+        int dx = exit.getX() - entryX;
+        int dz = exit.getZ() - entryZ;
+        if (Math.abs(dx) > Math.abs(dz)) {
+            return (dx > 0) ? 270 : 90;
+        } else {
+            return (dz > 0) ? 0 : 180;
+        }
+    }
+
     public String getFileName() {
         return fileName;
     }

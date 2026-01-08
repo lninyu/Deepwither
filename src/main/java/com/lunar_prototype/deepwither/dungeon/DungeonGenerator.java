@@ -194,10 +194,24 @@ public class DungeonGenerator {
             BlockVector3 connectionPoint = currentOrigin.add(exitOffset);
 
             // 1. Determine World Direction of this Exit
-            // We use the ROTATED offset to see where it points in the world.
-            // +Z=South, -X=West, etc.
-            // Map Vector to Yaw(0=South, 90=West, 180=North, 270=East)
-            int exitWorldYaw = getVectorYaw(exitOffset.getX(), exitOffset.getZ());
+            // Using Bounding Box Face detection (Rotated)
+            // First get the local direction (0=South, 90=West, etc.)
+            // We need the Original Exit Vector (unrotated) to check against local bounds
+            // But we only have rotatedExits list here...
+            // Need to retrieve original exit or reverse rotate.
+            // Simpler: Maintain original index or just map vector?
+            // Since we iterate rotatedExits, we can't easily map back without index or
+            // lookup.
+            // Let's use the list index since we scan loops.
+
+            BlockVector3 originalExit = currentPart.getExitOffsets().get(originalExitIndex);
+            int localExitYaw = currentPart.getExitDirection(originalExit);
+
+            // Apply current rotation to the local yaw
+            int exitWorldYaw = (localExitYaw + currentRot) % 360;
+
+            // int exitWorldYaw = getVectorYaw(exitOffset.getX(), exitOffset.getZ()); // OLD
+            // BUGGY WAY
 
             // Try to place a part
             if (random.nextDouble() < 0.8) {
