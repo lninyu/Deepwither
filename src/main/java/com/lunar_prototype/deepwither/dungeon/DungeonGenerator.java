@@ -82,12 +82,13 @@ public class DungeonGenerator {
         }
 
         public boolean intersects(PlacedPart other) {
-            // AABB Collision Check with 1 block buffer to prevent tight touching
-            return this.minBound.getX() < other.maxBound.getX() - 1 && this.maxBound.getX() > other.minBound.getX() + 1
+            // AABB Collision Check with 2 block buffer to allow wall merging
+            // Relaxed from 1 to 2 based on user feedback (too sensitive)
+            return this.minBound.getX() < other.maxBound.getX() - 2 && this.maxBound.getX() > other.minBound.getX() + 2
                     &&
                     this.minBound.getY() < other.maxBound.getY() && this.maxBound.getY() > other.minBound.getY() &&
-                    this.minBound.getZ() < other.maxBound.getZ() - 1
-                    && this.maxBound.getZ() > other.minBound.getZ() + 1;
+                    this.minBound.getZ() < other.maxBound.getZ() - 2
+                    && this.maxBound.getZ() > other.minBound.getZ() + 2;
         }
     }
 
