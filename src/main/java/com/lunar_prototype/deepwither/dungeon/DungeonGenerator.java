@@ -85,8 +85,10 @@ public class DungeonGenerator {
                 maxZ = Math.max(maxZ, v.getZ());
             }
 
-            this.minBound = BlockVector3.at(minX, minY, minZ).add(origin);
-            this.maxBound = BlockVector3.at(maxX, maxY, maxZ).add(origin);
+            BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
+            BlockVector3 worldEntryPos = origin.add(rotatedEntry);
+            this.minBound = BlockVector3.at(minX, minY, minZ).add(worldEntryPos);
+            this.maxBound = BlockVector3.at(maxX, maxY, maxZ).add(worldEntryPos);
         }
 
         private BlockVector3 rotate(int x, int y, int z, int angle) {
