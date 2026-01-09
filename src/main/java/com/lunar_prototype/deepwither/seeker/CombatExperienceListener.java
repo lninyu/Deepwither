@@ -2,6 +2,7 @@ package com.lunar_prototype.deepwither.seeker;
 
 import io.lumine.mythic.bukkit.MythicBukkit;
 import io.lumine.mythic.core.mobs.ActiveMob;
+import io.papermc.paper.event.player.PlayerArmSwingEvent;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
@@ -60,23 +61,36 @@ public class CombatExperienceListener implements Listener {
     }
 
     @EventHandler
-    public void onSwing(PlayerAnimationEvent event) {
+    public void onSwing(PlayerArmSwingEvent event) {
         Player player = event.getPlayer();
 
-        // 周囲の自分の管理下のMobを探す
+        // 8m以内のエンティティを走査
         player.getNearbyEntities(8, 8, 8).stream()
-                .filter(e -> MythicBukkit.inst().getMobManager().isActiveMob(e.getUniqueId()))
+                .filter(e -> e instanceof Mob) // 【修正】まずMobであることを確認
+                .filter(e -> MythicBukkit.inst().getMobManager().isActiveMob(e.getUniqueId())) // MythicMobか確認
                 .forEach(e -> {
-                    Mob mob = (Mob) e;
-                    getBrain(mob).ifPresent(brain -> {
-                        Vector toMob = mob.getLocation().toVector().subtract(player.getLocation().toVector()).normalize();
-                        // 空振りとして記録（isMiss = true）
+                    Mob mob = (Mob) e; // ここで安全にキャスト可能
+
+                    // 脳を取得して記録
+                    Optional.ofNullable(aiEngine.getBrain(mob.getUniqueId())).ifPresent(brain -> {
+                        Vector playerLoc = player.getLocation().toVector();
+                        Vector mobLoc = mob.getLocation().toVector();
+
+                        // プレイヤーからMobへの方向ベクトル
+                        Vector toMob = mobLoc.clone().subtract(playerLoc).normalize();
+                        // プレイヤーの視線方向
+                        Vector lookDir = player.getLocation().getDirection();
+
+                        double dist = player.getLocation().distance(mob.getLocation());
+
+                        // 空振り学習を実行 (recordAttack)
+                        // isMiss = true として記録
                         brain.recordAttack(
                                 player.getUniqueId(),
                                 mob.getTicksLived(),
-                                player.getLocation().distance(mob.getLocation()),
+                                dist,
                                 true,
-                                player.getLocation().getDirection(),
+                                lookDir,
                                 toMob
                         );
                     });
