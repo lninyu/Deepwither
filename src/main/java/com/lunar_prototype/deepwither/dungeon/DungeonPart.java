@@ -98,38 +98,41 @@ public class DungeonPart {
             }
         }
 
+        // Normalize ALL offsets to be relative to Entry position
+        // If Entry was not found, entryPosLocal is ZERO, so normalization has no effect
+        // (Origin-relative)
+        final BlockVector3 finalEntry = entryPosLocal;
+
+        // Normalize Exit offsets
+        List<BlockVector3> normalizedExits = exitOffsets.stream()
+                .map(v -> v.subtract(finalEntry))
+                .collect(Collectors.toList());
+        this.exitOffsets.clear();
+        this.exitOffsets.addAll(normalizedExits);
+
+        // Normalize Mob markers
+        List<BlockVector3> normalizedMob = mobMarkers.stream()
+                .map(v -> v.subtract(finalEntry))
+                .collect(Collectors.toList());
+        this.mobMarkers.clear();
+        this.mobMarkers.addAll(normalizedMob);
+
+        // Normalize Loot markers
+        List<BlockVector3> normalizedLoot = lootMarkers.stream()
+                .map(v -> v.subtract(finalEntry))
+                .collect(Collectors.toList());
+        this.lootMarkers.clear();
+        this.lootMarkers.addAll(normalizedLoot);
+
         if (!foundEntry) {
-            Deepwither.getInstance().getLogger()
-                    .warning("[" + fileName + "] Warning: No Gold Block (Entry) found. Assuming (0,0,0).");
-        } else {
-            // Normalize ALL offsets to be relative to Entry position
-            final BlockVector3 finalEntry = entryPosLocal;
-
-            // Normalize Exit offsets
-            List<BlockVector3> normalizedExits = exitOffsets.stream()
-                    .map(v -> v.subtract(finalEntry))
-                    .collect(Collectors.toList());
-            this.exitOffsets.clear();
-            this.exitOffsets.addAll(normalizedExits);
-
-            // Normalize Mob markers
-            List<BlockVector3> normalizedMob = mobMarkers.stream()
-                    .map(v -> v.subtract(finalEntry))
-                    .collect(Collectors.toList());
-            this.mobMarkers.clear();
-            this.mobMarkers.addAll(normalizedMob);
-
-            // Normalize Loot markers
-            List<BlockVector3> normalizedLoot = lootMarkers.stream()
-                    .map(v -> v.subtract(finalEntry))
-                    .collect(Collectors.toList());
-            this.lootMarkers.clear();
-            this.lootMarkers.addAll(normalizedLoot);
-
-            Deepwither.getInstance().getLogger().info(String.format(
-                    "[%s] Normalized %d exits, %d mob markers, %d loot markers relative to Entry at %s.",
-                    fileName, exitOffsets.size(), mobMarkers.size(), lootMarkers.size(), entryPosLocal));
+            Deepwither.getInstance().getLogger().warning(
+                    "[" + fileName + "] Warning: No Entry found. Using Origin (0,0,0) as Entry.");
         }
+
+        Deepwither.getInstance().getLogger().info(String.format(
+                "[%s] Normalized %d exits, %d mob markers, %d loot markers. Entry at %s.",
+                fileName, exitOffsets.size(), mobMarkers.size(), lootMarkers.size(),
+                foundEntry ? entryPosLocal.toString() : "(0,0,0)"));
 
         if (exitOffsets.isEmpty() && !type.equals("ROOM")) {
             Deepwither.getInstance().getLogger()
