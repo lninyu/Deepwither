@@ -238,8 +238,8 @@ public class DungeonGenerator {
             BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
             int localExitYaw = currentPart.getExitDirection(originalExit);
 
-            // Apply current rotation (Corrected Math: Local - Rot)
-            int exitWorldYaw = (localExitYaw - currentRot + 360) % 360;
+            // Apply current rotation (Clockwise: Local + Rot)
+            int exitWorldYaw = (localExitYaw + currentRot) % 360;
 
             // Force extend if it's the only exit (to prevent premature dead-ends)
             boolean forceExtend = rotatedExits.size() == 1;

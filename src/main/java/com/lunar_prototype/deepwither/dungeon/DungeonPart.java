@@ -78,12 +78,14 @@ public class DungeonPart {
         // 2. Second pass: Collect everything else, making them relative to ENTRY
         for (BlockVector3 pos : clipboard.getRegion()) {
             var block = clipboard.getFullBlock(pos);
-            BlockVector3 posRelToOrigin = pos.subtract(origin);
+            // Ensure we create a NEW vector object, especially if FAWE reuses 'pos'
+            BlockVector3 currentPos = BlockVector3.at(pos.getX(), pos.getY(), pos.getZ());
+            BlockVector3 posRelToOrigin = currentPos.subtract(origin);
             BlockVector3 posRelToEntry = posRelToOrigin.subtract(entryPosRelToOrigin);
 
             // Exit (Iron Block)
             if (block.getBlockType().equals(BlockTypes.IRON_BLOCK)) {
-                // Force Flat Y relative to Entry
+                // Force Flat Y relative to Entry for exits
                 BlockVector3 exitVec = BlockVector3.at(posRelToEntry.getX(), 0, posRelToEntry.getZ());
                 this.exitOffsets.add(exitVec);
                 Deepwither.getInstance().getLogger()
@@ -91,13 +93,13 @@ public class DungeonPart {
             }
             // Mob Marker (Redstone)
             else if (block.getBlockType().equals(BlockTypes.REDSTONE_BLOCK)) {
-                this.mobMarkers.add(posRelToEntry);
+                this.mobMarkers.add(BlockVector3.at(posRelToEntry.getX(), posRelToEntry.getY(), posRelToEntry.getZ()));
                 Deepwither.getInstance().getLogger()
                         .info(String.format("[%s] Found MOB at %s (Rel to Entry)", fileName, posRelToEntry));
             }
             // Loot Marker (Emerald)
             else if (block.getBlockType().equals(BlockTypes.EMERALD_BLOCK)) {
-                this.lootMarkers.add(posRelToEntry);
+                this.lootMarkers.add(BlockVector3.at(posRelToEntry.getX(), posRelToEntry.getY(), posRelToEntry.getZ()));
                 Deepwither.getInstance().getLogger()
                         .info(String.format("[%s] Found LOOT at %s (Rel to Entry)", fileName, posRelToEntry));
             }
