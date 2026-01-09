@@ -13,6 +13,7 @@ import com.sk89q.worldedit.function.operation.Operations;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.math.transform.AffineTransform;
 import com.sk89q.worldedit.session.ClipboardHolder;
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -460,10 +461,17 @@ public class DungeonGenerator {
     }
 
     private void removeMarker(World world, BlockVector3 pos, Material expectedType) {
-        Location loc = new Location(world, pos.getX(), pos.getY(), pos.getZ());
-        if (loc.getBlock().getType() == expectedType) {
-            loc.getBlock().setType(Material.AIR);
-        }
+        // Schedule for next tick to ensure WorldEdit changes are applied
+        Bukkit.getScheduler().runTask(Deepwither.getInstance(), () -> {
+            Location loc = new Location(world, pos.getX(), pos.getY(), pos.getZ());
+            if (loc.getBlock().getType() == expectedType) {
+                loc.getBlock().setType(Material.AIR);
+                Deepwither.getInstance().getLogger().info("Removed marker " + expectedType + " at " + pos);
+            } else {
+                Deepwither.getInstance().getLogger().warning(
+                        "Expected " + expectedType + " at " + pos + " but found " + loc.getBlock().getType());
+            }
+        });
     }
 
     private DungeonPart findPartByType(String type) {
