@@ -175,61 +175,71 @@ public class DungeonGenerator {
 
         if (pastePart(world, startOrigin, startPart, finalStartRotation)) {
             // Recurse
-            generateRecursive(world, startPart, startOrigin, finalStartRotation, 1, maxDepth);
+            generateRecursive(world, startPart, startOrigin, finalStartRotation, 1, maxDepth, 0);
         }
 
         Deepwither.getInstance().getLogger().info("=== 生成完了: Placed " + placedParts.size() + " parts ===");
     }
 
     // Recursive Step
+    // Recursive Step
     private void generateRecursive(World world, DungeonPart currentPart, BlockVector3 currentOrigin, int currentRot,
-            int depth, int maxDepth) {
-        if (depth >= maxDepth)
+            int depth, int maxDepth, int chainLength) {
+        // Check depth limit
+        if (depth >= maxDepth) {
+            // Cap all exits since we reached max depth
+            capExits(world, currentPart, currentOrigin, currentRot);
             return;
+        }
 
         List<BlockVector3> rotatedExits = currentPart.getRotatedExitOffsets(currentRot);
 
         // Process each exit (random shuffle for variety?)
+        // Process each exit
         for (int i = 0; i < rotatedExits.size(); i++) {
             BlockVector3 exitOffset = rotatedExits.get(i);
 
             // Calculate world position of this exit (Connection Point)
             BlockVector3 connectionPoint = currentOrigin.add(exitOffset);
 
-            // 1. Determine World Direction of this Exit
-            // Using Bounding Box Face detection (Rotated)
-            // First get the local direction (0=South, 90=West, etc.)
-            // We need the Original Exit Vector (unrotated) to check against local bounds
-
             BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
             int localExitYaw = currentPart.getExitDirection(originalExit);
 
-            // Apply current rotation to the local yaw
-            // Minecraft Yaw is Clockwise (S=0, W=90, N=180, E=270)
-            // WorldEdit rotateY is Counter-Clockwise (Standard Math)
-            // So Rotation subtracts from Yaw within the MC frame
+            // Apply current rotation (Corrected Math: Local - Rot)
             int exitWorldYaw = (localExitYaw - currentRot + 360) % 360;
-
-            // int exitWorldYaw = getVectorYaw(exitOffset.getX(), exitOffset.getZ()); // OLD
-            // BUGGY WAY
 
             // Force extend if it's the only exit (to prevent premature dead-ends)
             boolean forceExtend = rotatedExits.size() == 1;
             double chance = forceExtend ? 1.0 : 0.8;
 
-            if (random.nextDouble() < chance) {
-                // Try multiple types (shuffle order)
-                List<String> typesToTry = new ArrayList<>();
-                // 60% chance to prioritize ROOM if depth allows
-                if (random.nextDouble() > 0.4) {
-                    typesToTry.add("ROOM");
-                    typesToTry.add("HALLWAY");
-                } else {
-                    typesToTry.add("HALLWAY");
-                    typesToTry.add("ROOM");
-                }
+            boolean placedInfo = false;
 
-                boolean placed = false;
+            if (random.nextDouble() < chance) {
+                // Determine Types to Try based on Chain Length
+                List<String> typesToTry = new ArrayList<>();
+
+                // Chain Logic:
+                // Length < 3: Priority HALLWAY (Extend)
+                // Length >= 5: Priority ROOM (Branch)
+                // Middle: Mixed
+
+                if (chainLength < 3) {
+                    typesToTry.add("HALLWAY");
+                    if (random.nextDouble() > 0.8)
+                        typesToTry.add("ROOM"); // Low chance for room early
+                } else if (chainLength >= 5) {
+                    typesToTry.add("ROOM");
+                    typesToTry.add("HALLWAY"); // Fallback
+                } else {
+                    // 50/50
+                    if (random.nextDouble() > 0.5) {
+                        typesToTry.add("ROOM");
+                        typesToTry.add("HALLWAY");
+                    } else {
+                        typesToTry.add("HALLWAY");
+                        typesToTry.add("ROOM");
+                    }
+                }
 
                 for (String type : typesToTry) {
                     List<DungeonPart> candidates = partList.stream()
@@ -239,34 +249,27 @@ public class DungeonGenerator {
                     if (candidates.isEmpty())
                         continue;
 
-                    Collections.shuffle(candidates); // Try random parts of this type
+                    Collections.shuffle(candidates);
 
                     for (DungeonPart nextPart : candidates) {
                         try {
-                            // 2. Calculate Required Rotation
-                            // We want: Intrinsic - Rot = Target
-                            // So: Rot = Intrinsic - Target
+                            // Calculate Rotation: Intrinsic - Target = Rot
                             int nextRotation = (nextPart.getIntrinsicYaw() - exitWorldYaw + 360) % 360;
 
-                            // Calculate Origin for Next Part
                             BlockVector3 nextEntryRotated = nextPart.getRotatedEntryOffset(nextRotation);
                             BlockVector3 nextOrigin = connectionPoint.subtract(nextEntryRotated);
 
-                            // Debug Log
                             Deepwither.getInstance().getLogger().info(String.format(
-                                    "Trying [%s](%s) at %s Rot:%d | ExYaw:%d -> TgtYaw:%d",
-                                    nextPart.getFileName(), type, nextOrigin, nextRotation, localExitYaw,
+                                    "Trying [%s](%s) at %s Rot:%d | Chain:%d | ExYaw:%d -> TgtYaw:%d",
+                                    nextPart.getFileName(), type, nextOrigin, nextRotation, chainLength, localExitYaw,
                                     exitWorldYaw));
 
-                            // Try paste
                             if (pastePart(world, nextOrigin, nextPart, nextRotation)) {
-                                // Success, recurse
-                                generateRecursive(world, nextPart, nextOrigin, nextRotation, depth + 1, maxDepth);
-                                placed = true;
+                                int newChain = type.equals("HALLWAY") ? chainLength + 1 : 0;
+                                generateRecursive(world, nextPart, nextOrigin, nextRotation, depth + 1, maxDepth,
+                                        newChain);
+                                placedInfo = true;
                                 break; // Break candidate loop
-                            } else {
-                                Deepwither.getInstance().getLogger()
-                                        .info("-> Failed to place (Collision or other error)");
                             }
                         } catch (Exception e) {
                             Deepwither.getInstance().getLogger()
@@ -274,11 +277,63 @@ public class DungeonGenerator {
                             e.printStackTrace();
                         }
                     }
-                    if (placed)
+                    if (placedInfo)
                         break; // Break type loop if placed
                 }
             }
+
+            // If failed to place anything (Collision or Change skipped), Cap it.
+            if (!placedInfo) {
+                placeCap(world, connectionPoint, exitWorldYaw);
+            }
         }
+    }
+
+    private void capExits(World world, DungeonPart currentPart, BlockVector3 currentOrigin, int currentRot) {
+        List<BlockVector3> rotatedExits = currentPart.getRotatedExitOffsets(currentRot);
+        for (int i = 0; i < rotatedExits.size(); i++) {
+            BlockVector3 exitOffset = rotatedExits.get(i);
+            BlockVector3 connectionPoint = currentOrigin.add(exitOffset);
+
+            BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
+            int localExitYaw = currentPart.getExitDirection(originalExit);
+            int exitWorldYaw = (localExitYaw - currentRot + 360) % 360;
+
+            placeCap(world, connectionPoint, exitWorldYaw);
+        }
+    }
+
+    private void placeCap(World world, BlockVector3 connectionPoint, int exitWorldYaw) {
+        // Try CAP then ENTRANCE (as fallback)
+        List<String> capTypes = new ArrayList<>();
+        capTypes.add("CAP");
+        capTypes.add("ENTRANCE");
+
+        for (String type : capTypes) {
+            List<DungeonPart> candidates = partList.stream()
+                    .filter(p -> p.getType().equals(type))
+                    .collect(Collectors.toList());
+            if (candidates.isEmpty())
+                continue;
+
+            Collections.shuffle(candidates);
+
+            for (DungeonPart capPart : candidates) {
+                // Align Cap Intrinsic Yaw to Exit World Yaw
+                int nextRotation = (capPart.getIntrinsicYaw() - exitWorldYaw + 360) % 360;
+                BlockVector3 nextEntryRotated = capPart.getRotatedEntryOffset(nextRotation);
+                BlockVector3 nextOrigin = connectionPoint.subtract(nextEntryRotated);
+
+                Deepwither.getInstance().getLogger()
+                        .info("Attempting CAP with " + capPart.getFileName() + " at " + connectionPoint);
+
+                if (pastePart(world, nextOrigin, capPart, nextRotation)) {
+                    Deepwither.getInstance().getLogger().info("Placed CAP at " + connectionPoint);
+                    return; // Capped successfully
+                }
+            }
+        }
+        Deepwither.getInstance().getLogger().info("Failed to CAP at " + connectionPoint);
     }
 
     private int getVectorYaw(int x, int z) {
