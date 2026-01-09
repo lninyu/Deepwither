@@ -47,88 +47,59 @@ public class DungeonPart {
         this.mobMarkers.clear();
         this.lootMarkers.clear();
 
-        // Calculate Bounding Box relative to Origin
         this.minPoint = clipboard.getRegion().getMinimumPoint().subtract(origin);
         this.maxPoint = clipboard.getRegion().getMaximumPoint().subtract(origin);
 
-        Deepwither.getInstance().getLogger()
-                .info(String.format("[%s] Scanning Part (ID:%d). Origin:%s | Bounds Rel:[%s, %s]",
-                        fileName, System.identityHashCode(this), origin, minPoint, maxPoint));
+        Deepwither.getInstance().getLogger().info(String.format("[%s] Scanning Part. Origin:%s | Bounds Rel:[%s, %s]",
+                fileName, origin, minPoint, maxPoint));
 
+        // 1. First pass: Find Entry (Gold Block)
         boolean foundEntry = false;
-        BlockVector3 entryPosLocal = BlockVector3.ZERO;
+        BlockVector3 entryPosRelToOrigin = BlockVector3.ZERO;
 
         for (BlockVector3 pos : clipboard.getRegion()) {
-            var block = clipboard.getFullBlock(pos);
-
-            // 金ブロック (入口) -> 接続元を受け入れる場所
-            if (block.getBlockType().equals(BlockTypes.GOLD_BLOCK)) {
-                entryPosLocal = pos.subtract(origin);
-                this.entryX = entryPosLocal.getX();
-                this.entryY = entryPosLocal.getY();
-                this.entryZ = entryPosLocal.getZ();
-
-                Deepwither.getInstance().getLogger().info(String.format(
-                        "[%s] Found ENTRY(Gold). Pos:%s - Origin:%s = %d,%d,%d",
-                        fileName, pos, origin, entryX, entryY, entryZ));
+            if (clipboard.getFullBlock(pos).getBlockType().equals(BlockTypes.GOLD_BLOCK)) {
+                entryPosRelToOrigin = pos.subtract(origin);
                 foundEntry = true;
+                break;
             }
-            // 鉄ブロック (出口) -> 次のパーツへ接続する場所
-            else if (block.getBlockType().equals(BlockTypes.IRON_BLOCK)) {
-                // Force Flat: Use Entry Y for Exit Y to prevent climbing
-                // Assuming flat dungeon design as per user request
-                BlockVector3 exitVec = BlockVector3.at(
-                        pos.getX() - origin.getX(),
-                        this.entryY, // Force Y to match Entry
-                        pos.getZ() - origin.getZ());
-
-                this.exitOffsets.add(exitVec);
-
-                Deepwither.getInstance().getLogger().info(String.format(
-                        "[%s] Found EXIT(Iron). Pos:%s - Origin:%s = %s (Forced Flat Y=%d)",
-                        fileName, pos, origin, exitVec, entryY));
-            }
-            // ★ Mob Spawn Marker (Redstone Block)
-            else if (block.getBlockType().equals(BlockTypes.REDSTONE_BLOCK)) {
-                this.mobMarkers.add(pos.subtract(origin));
-            }
-            // ★ Loot Chest Marker (Emerald Block)
-            else if (block.getBlockType().equals(BlockTypes.EMERALD_BLOCK)) {
-                this.lootMarkers.add(pos.subtract(origin));
-            }
-        }
-
-        // Normalize markers to be relative to the Entry position
-        if (foundEntry) {
-            final BlockVector3 finalEntry = entryPosLocal;
-
-            // Re-map markers to be relative to entry
-            List<BlockVector3> normalizedMob = mobMarkers.stream()
-                    .map(v -> v.subtract(finalEntry))
-                    .collect(Collectors.toList());
-            this.mobMarkers.clear();
-            this.mobMarkers.addAll(normalizedMob);
-
-            List<BlockVector3> normalizedLoot = lootMarkers.stream()
-                    .map(v -> v.subtract(finalEntry))
-                    .collect(Collectors.toList());
-            this.lootMarkers.clear();
-            this.lootMarkers.addAll(normalizedLoot);
-
-            Deepwither.getInstance().getLogger().info(String.format(
-                    "[%s] Normalized %d mob markers and %d loot markers relative to Entry.",
-                    fileName, mobMarkers.size(), lootMarkers.size()));
         }
 
         if (!foundEntry) {
             Deepwither.getInstance().getLogger()
-                    .warning("[" + fileName + "] Warning: No Gold Block (Entry) found. Assuming (0,0,0).");
+                    .warning("[" + fileName + "] No Gold Block (Entry) found. Using Origin as Entry.");
         }
 
-        if (exitOffsets.isEmpty() && !type.equals("ROOM")) {
-            Deepwither.getInstance().getLogger()
-                    .info("[" + fileName + "] Info: No Iron Block (Exit) found. (Normal for dead-ends)");
+        // Save entry coordinates (relative to origin)
+        this.entryX = entryPosRelToOrigin.getX();
+        this.entryY = entryPosRelToOrigin.getY();
+        this.entryZ = entryPosRelToOrigin.getZ();
+
+        // 2. Second pass: Collect everything else, making them relative to ENTRY
+        for (BlockVector3 pos : clipboard.getRegion()) {
+            var block = clipboard.getFullBlock(pos);
+            BlockVector3 posRelToOrigin = pos.subtract(origin);
+            BlockVector3 posRelToEntry = posRelToOrigin.subtract(entryPosRelToOrigin);
+
+            // Exit (Iron Block)
+            if (block.getBlockType().equals(BlockTypes.IRON_BLOCK)) {
+                // Force Flat Y relative to Entry
+                BlockVector3 exitVec = BlockVector3.at(posRelToEntry.getX(), 0, posRelToEntry.getZ());
+                this.exitOffsets.add(exitVec);
+            }
+            // Mob Marker (Redstone)
+            else if (block.getBlockType().equals(BlockTypes.REDSTONE_BLOCK)) {
+                this.mobMarkers.add(posRelToEntry);
+            }
+            // Loot Marker (Emerald)
+            else if (block.getBlockType().equals(BlockTypes.EMERALD_BLOCK)) {
+                this.lootMarkers.add(posRelToEntry);
+            }
         }
+
+        Deepwither.getInstance().getLogger().info(String.format(
+                "[%s] Scan Complete: %d exits, %d mob, %d loot. Entry Offset from Origin: %s",
+                fileName, exitOffsets.size(), mobMarkers.size(), lootMarkers.size(), entryPosRelToOrigin));
 
         calculateIntrinsicYaw();
     }

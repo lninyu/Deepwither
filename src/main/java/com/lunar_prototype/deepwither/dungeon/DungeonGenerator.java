@@ -225,10 +225,15 @@ public class DungeonGenerator {
         // Process each exit (random shuffle for variety?)
         // Process each exit
         for (int i = 0; i < rotatedExits.size(); i++) {
-            BlockVector3 exitOffset = rotatedExits.get(i);
+            BlockVector3 exitOffsetFromEntry = rotatedExits.get(i);
+
+            // Calculate world position of the ENTRY of the current part
+            BlockVector3 rotatedEntry = currentPart.getRotatedEntryOffset(currentRot);
+            BlockVector3 worldEntryPos = currentOrigin.add(rotatedEntry);
 
             // Calculate world position of this exit (Connection Point)
-            BlockVector3 connectionPoint = currentOrigin.add(exitOffset);
+            // Since exitOffsetFromEntry is relative to Entry, add it to worldEntryPos
+            BlockVector3 connectionPoint = worldEntryPos.add(exitOffsetFromEntry);
 
             BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
             int localExitYaw = currentPart.getExitDirection(originalExit);
@@ -424,7 +429,8 @@ public class DungeonGenerator {
             removeMarker(world, worldEntryPos, Material.GOLD_BLOCK);
 
             for (BlockVector3 exit : part.getRotatedExitOffsets(rotation)) {
-                removeMarker(world, origin.add(exit), Material.IRON_BLOCK);
+                // Exit is now relative to Entry, so add to worldEntryPos
+                removeMarker(world, worldEntryPos.add(exit), Material.IRON_BLOCK);
             }
 
             // Process Mob Markers
