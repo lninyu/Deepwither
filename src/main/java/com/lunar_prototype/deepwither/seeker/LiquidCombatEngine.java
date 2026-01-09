@@ -5,6 +5,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 
 import java.util.Comparator;
+import java.util.Random;
 
 public class LiquidCombatEngine {
 
@@ -173,7 +174,7 @@ public class LiquidCombatEngine {
     private BanditDecision thinkV2(BanditContext context, LiquidBrain brain, Mob bukkitEntity) {
         // V1の物理層・リキッド演算をベースとして実行
         BanditDecision d = thinkV1(context, brain, bukkitEntity);
-        d.engine_version = "v2.0-Tactical-Sync";
+        d.engine_version = "v2.0-Tactical-Q";
 
         // 戦術的優位性の更新（ヒット率や被弾率から計算）
         brain.updateTacticalAdvantage();
@@ -181,79 +182,92 @@ public class LiquidCombatEngine {
 
         if (bukkitEntity.getTarget() instanceof Player) {
             Player target = (Player) bukkitEntity.getTarget();
+            double enemyDist = context.environment.nearby_enemies.isEmpty() ? 20.0 : context.environment.nearby_enemies.get(0).dist;
             LiquidBrain.AttackPattern pattern = brain.enemyPatterns.get(target.getUniqueId());
 
-            // --- 1. 敵の時空間パターンマッチング (V2核心) ---
+            // --- 1. 敵の時空間パターンマッチング ---
             double patternMatchScore = 0.0;
             if (pattern != null && pattern.sampleCount > 2) {
                 long ticksSinceLast = bukkitEntity.getTicksLived() - pattern.lastAttackTick;
                 double timingScore = Math.max(0, 1.0 - Math.abs(ticksSinceLast - pattern.averageInterval) / 20.0);
-                double distScore = Math.max(0, 1.0 - Math.abs(context.environment.nearby_enemies.get(0).dist - pattern.preferredDist) / 2.0);
+                double distScore = Math.max(0, 1.0 - Math.abs(enemyDist - pattern.preferredDist) / 2.0);
                 patternMatchScore = (timingScore * 0.5) + (distScore * 0.5);
             }
 
             // --- 2. 自己同期ロジック (Self-Sync) ---
-            // 自分の攻撃リズムを解析し、行動を補正する
             long ticksSinceSelfLast = bukkitEntity.getTicksLived() - brain.selfPattern.lastAttackTick;
             double selfAvgInterval = brain.selfPattern.averageInterval;
-
-            boolean isRecovering = false; // 攻撃後の硬直中フラグ
+            boolean isRecovering = false;
 
             if (selfAvgInterval > 0) {
-                // A. 【攻撃準備・踏み込み】: 次の自律攻撃/スキルが発動する直前 (5~10tick前)
                 if (ticksSinceSelfLast > (selfAvgInterval - 10) && ticksSinceSelfLast < selfAvgInterval) {
-                    // 有利または均衡時なら、攻撃を当てるために一気に詰める
                     if (advantage > 0.4) {
                         d.movement.strategy = "CHARGE";
                         d.reasoning += " | SELF_SYNC: PRE-ATTACK_CHARGE";
                     }
-                }
-                // B. 【攻撃後・離脱】: 攻撃直後 (15tick以内)
-                else if (ticksSinceSelfLast >= 0 && ticksSinceSelfLast < 15) {
+                } else if (ticksSinceSelfLast >= 0 && ticksSinceSelfLast < 15) {
                     isRecovering = true;
-                    // 攻撃した直後はバニラやスキルの硬直があるため、
-                    // 棒立ちせず、ヒットアンドアウェイのために距離を取る
-                    if (advantage < 0.8) { // 圧倒的優勢でなければ離脱を優先
+                    if (advantage < 0.8) {
                         d.movement.strategy = "POST_ATTACK_EVADE";
                         d.reasoning += " | SELF_SYNC: RECOVERY_MOVE";
                     }
                 }
             }
 
-            // --- 3. 戦術的分岐 (Tactical Branching) ---
-            // 自己同期による移動補正を維持しつつ、戦術方針を決定
+            // --- 3. Q-Learning による行動選択の補正 ---
+            // 現在の状況をキーに変換
+            String currentStateKey = brain.qTable.getStateKey(advantage, enemyDist, isRecovering);
+            String[] options = {"ATTACK", "EVADE", "BAITING", "COUNTER", "OBSERVE", "RETREAT"};
 
-            // A. 【圧倒的劣勢】: 徹底防御 & 分析モード
+            // 10%の確率で探索（新しい動きを試す）、90%で学習済み最適解を選択
+            String recommendedAction;
+            if (Math.random() < 0.1) {
+                recommendedAction = options[new Random().nextInt(options.length)];
+                d.reasoning += " | Q:EXPLORING";
+            } else {
+                recommendedAction = brain.qTable.getBestAction(currentStateKey, options);
+                d.reasoning += " | Q:BEST_" + recommendedAction;
+            }
+
+            // --- 4. 戦術的分岐 (Tactical Branching) + Q学習の統合 ---
+
+            // A. 【圧倒的劣勢】: 基本は防御だが、Q値が「撤退(RETREAT)」を強く推奨するなら上書き
             if (advantage < 0.3) {
-                d.decision.action_type = "DESPERATE_DEFENSE";
-                d.movement.strategy = "MAINTAIN_DISTANCE";
+                d.decision.action_type = recommendedAction.equals("RETREAT") ? "RETREAT" : "DESPERATE_DEFENSE";
+                d.movement.strategy = d.decision.action_type.equals("RETREAT") ? "RETREAT" : "MAINTAIN_DISTANCE";
                 brain.reflex.update(1.0, 0.9);
                 d.reasoning += " | TACTICAL: DEFENSIVE";
             }
-            // B. 【カウンター狙い】: 敵のパターンが読み切れている時（硬直中でない場合のみ）
+            // B. 【カウンター狙い】
             else if (patternMatchScore > 0.7 && brain.composure > 0.4 && !isRecovering) {
                 d.decision.action_type = "COUNTER";
                 d.movement.strategy = "SIDESTEP_COUNTER";
                 d.decision.use_skill = "Counter_Stance";
                 d.reasoning += " | TACTICAL: PATTERN_READ";
             }
-            // C. 【圧倒的優勢】: 殲滅モード
+            // C. 【圧倒的優勢】
             else if (advantage > 0.7) {
                 d.decision.action_type = "OVERWHELM";
-                // 殲滅モードなら硬直中もジグザグに追い回す
                 d.movement.strategy = "SPRINT_ZIGZAG";
                 d.decision.use_skill = "Execution_Strike";
                 d.reasoning += " | TACTICAL: AGGRESSIVE";
             }
-            // D. 【誘い受け】
-            else if (advantage >= 0.4 && advantage <= 0.6 && brain.frustration < 0.3 && !isRecovering) {
-                if (Math.random() < 0.2) {
-                    d.decision.action_type = "BAITING";
-                    d.movement.strategy = "NONE";
+            // D. 【均衡状態】: ここではQ学習の判断を 100% 優先させる
+            else {
+                d.decision.action_type = recommendedAction;
+                // アクションに応じて移動戦略も軽く補正
+                if (recommendedAction.equals("EVADE")) d.movement.strategy = "SIDESTEP";
+                if (recommendedAction.equals("BAITING")) d.movement.strategy = "NONE";
+
+                if (recommendedAction.equals("BAITING") && brain.frustration < 0.3) {
                     d.communication.voice_line = "Is that all you've got?";
-                    d.reasoning += " | TACTICAL: BAITING";
                 }
+                d.reasoning += " | TACTICAL: Q_BALANCED";
             }
+
+            // 学習更新用に、今回選んだ状態と行動を脳に記憶させる
+            brain.lastStateKey = currentStateKey;
+            brain.lastActionType = d.decision.action_type;
         }
 
         return d;

@@ -35,6 +35,52 @@ public class LiquidBrain {
     // LiquidBrain 内にプレイヤーUUID紐付けで保持
     public Map<UUID, AttackPattern> enemyPatterns = new HashMap<>();
 
+    public class QTable {
+        // 状態(StateKey) -> { 行動(Action) -> 期待値(Q-Value) }
+        private final Map<String, Map<String, Double>> table = new HashMap<>();
+        private final double learningRate = 0.2; // 学習の早さ
+        private final double discountFactor = 0.9; // 未来の報酬の重視度
+
+        public String getStateKey(double advantage, double distance, boolean isRecovering) {
+            String adv = advantage > 0.7 ? "WIN" : (advantage < 0.3 ? "LOSE" : "NEUTRAL");
+            String dst = distance < 4 ? "NEAR" : (distance < 10 ? "MID" : "FAR");
+            String sync = isRecovering ? "REC" : "READY";
+            return adv + "_" + dst + "_" + sync;
+        }
+
+        public String getBestAction(String stateKey, String[] availableActions) {
+            Map<String, Double> actions = table.getOrDefault(stateKey, new HashMap<>());
+            String bestAction = availableActions[0];
+            double maxQ = -Double.MAX_VALUE;
+
+            for (String action : availableActions) {
+                double q = actions.getOrDefault(action, 0.5); // 未学習なら初期値0.5
+                if (q > maxQ) {
+                    maxQ = q;
+                    bestAction = action;
+                }
+            }
+            return bestAction;
+        }
+
+        public void update(String state, String action, double reward, String nextState) {
+            Map<String, Double> actions = table.computeIfAbsent(state, k -> new HashMap<>());
+            double currentQ = actions.getOrDefault(action, 0.5);
+
+            // 次の状態で最も高いQ値を取得 (TD学習)
+            double maxNextQ = table.getOrDefault(nextState, new HashMap<>())
+                    .values().stream().mapToDouble(v -> v).max().orElse(0.5);
+
+            // Q値の更新式: Q(s,a) = Q(s,a) + α * (R + γ * maxQ(s',a') - Q(s,a))
+            double newQ = currentQ + learningRate * (reward + discountFactor * maxNextQ - currentQ);
+            actions.put(action, newQ);
+        }
+    }
+
+    public final QTable qTable = new QTable();
+    public String lastStateKey = "NEUTRAL_MID_READY";
+    public String lastActionType = "OBSERVE";
+
     public class TacticalMemory {
         public double hitRate = 0.5;       // 自分の攻撃が当たっている率
         public double dodgeRate = 0.5;     // 敵の攻撃を避けている率
