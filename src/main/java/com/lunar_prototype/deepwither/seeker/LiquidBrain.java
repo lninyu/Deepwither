@@ -3,10 +3,7 @@ package com.lunar_prototype.deepwither.seeker;
 import com.lunar_prototype.deepwither.seeker.v2.BehaviorProfile;
 import org.bukkit.util.Vector;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
 
 public class LiquidBrain {
     public final LiquidNeuron aggression;
@@ -41,11 +38,28 @@ public class LiquidBrain {
         private final double learningRate = 0.2; // 学習の早さ
         private final double discountFactor = 0.9; // 未来の報酬の重視度
 
-        public String getStateKey(double advantage, double distance, boolean isRecovering) {
+        public String getStateKey(double advantage, double distance, boolean isRecovering, List<BanditContext.EnemyInfo> enemies) {
             String adv = advantage > 0.7 ? "WIN" : (advantage < 0.3 ? "LOSE" : "NEUTRAL");
             String dst = distance < 4 ? "NEAR" : (distance < 10 ? "MID" : "FAR");
             String sync = isRecovering ? "REC" : "READY";
-            return adv + "_" + dst + "_" + sync;
+
+            // --- 追加：対複数戦のメタデータ ---
+            int count = enemies.size();
+            String crowd;
+            if (count <= 1) {
+                crowd = "SOLO"; // タイマン状態
+            } else {
+                // 2人以上いる場合、自分に一番近い「2番目の敵」との距離で危険度を判定
+                double secondClosest = enemies.stream()
+                        .mapToDouble(e -> e.dist)
+                        .sorted()
+                        .skip(1) // ターゲット（1番目）を除外
+                        .findFirst().orElse(20.0);
+
+                crowd = (secondClosest < 6.0) ? "GANKED" : "MULTI"; // 近くに2人目がいればGANKED
+            }
+
+            return adv + "_" + dst + "_" + sync + "_" + crowd;
         }
 
         public String getBestAction(String stateKey, String[] availableActions) {

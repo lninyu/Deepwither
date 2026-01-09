@@ -1,5 +1,7 @@
 package com.lunar_prototype.deepwither.seeker;
 
+import org.bukkit.entity.Player;
+
 import java.util.List;
 
 public class BanditContext {
@@ -27,6 +29,7 @@ public class BanditContext {
         public String health; // "low", "mid", "high"
         public String holding;
         public boolean in_sight;
+        public Player playerInstance;
     }
 
     public static class AllyInfo {

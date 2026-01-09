@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 public class SensorProvider {
 
     // 周囲何ブロックまでをスキャン対象にするか
-    private static final int SCAN_RADIUS = 15;
+    private static final int SCAN_RADIUS = 32;
 
     public BanditContext scan(ActiveMob activeMob) {
         BanditContext context = new BanditContext();
@@ -86,30 +86,38 @@ public class SensorProvider {
                 .collect(Collectors.toList());
     }
 
-    private List<BanditContext.EnemyInfo> scanEnemies(Mob self, List<Entity> nearby) {
+    public List<BanditContext.EnemyInfo> scanEnemies(Mob self, List<Entity> nearby) {
         return nearby.stream()
                 .filter(e -> e instanceof Player)
                 .map(e -> {
+                    Player p = (Player) e; // キャスト
                     BanditContext.EnemyInfo info = new BanditContext.EnemyInfo();
-                    double dist = self.getLocation().distance(e.getLocation());
+
+                    info.playerInstance = p; // インスタンスを格納
+
+                    double dist = self.getLocation().distance(p.getLocation());
                     info.dist = dist;
 
-                    // --- LoS判定の改良 ---
-                    // 15ブロック以内：足音や気配でLoSを無視して「見える（検知）」とする
-                    // 15ブロック以上：実際に視線が通っている場合のみ「見える」とする
+                    // --- LoS判定 ---
+                    // 15m以内は気配で察知、それ以上は視線が必要
                     if (dist <= 15.0) {
                         info.in_sight = true;
                     } else {
-                        info.in_sight = self.hasLineOfSight(e);
+                        info.in_sight = self.hasLineOfSight(p);
                     }
 
-                    info.holding = ((Player) e).getInventory().getItemInMainHand().getType().name();
+                    info.holding = p.getInventory().getItemInMainHand().getType().name();
 
-                    // HPのラベル化
-                    double p = ((Player) e).getHealth() / 20.0;
-                    info.health = p > 0.7 ? "high" : (p > 0.3 ? "mid" : "low");
+                    // HPの割合計算 (属性値を考慮するとより正確)
+                    double maxHealth = p.getAttribute(Attribute.MAX_HEALTH).getValue();
+                    double healthPercent = p.getHealth() / maxHealth;
+                    info.health = healthPercent > 0.7 ? "high" : (healthPercent > 0.3 ? "mid" : "low");
+
                     return info;
-                }).collect(Collectors.toList());
+                })
+                // 距離が近い順に並び替える（thinkV2で index 0 が最優先ターゲットになる）
+                .sorted(java.util.Comparator.comparingDouble(info -> info.dist))
+                .collect(Collectors.toList());
     }
 
     // SeekerAIEngineから座標取得のために呼ばれる

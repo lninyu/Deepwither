@@ -1,10 +1,12 @@
 package com.lunar_prototype.deepwither.seeker;
 
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.Random;
 
 public class LiquidCombatEngine {
@@ -174,112 +176,112 @@ public class LiquidCombatEngine {
     private BanditDecision thinkV2(BanditContext context, LiquidBrain brain, Mob bukkitEntity) {
         // V1の物理層・リキッド演算をベースとして実行
         BanditDecision d = thinkV1(context, brain, bukkitEntity);
-        d.engine_version = "v2.1-Dynamic-Epsilon"; // バージョンアップ
+        d.engine_version = "v2.2-Multi-Aware";
 
-        // 戦術的優位性の更新（ヒット率や被弾率から計算）
         brain.updateTacticalAdvantage();
         double advantage = brain.tacticalMemory.combatAdvantage;
 
-        if (bukkitEntity.getTarget() instanceof Player) {
-            Player target = (Player) bukkitEntity.getTarget();
-            double enemyDist = context.environment.nearby_enemies.isEmpty() ? 20.0 : context.environment.nearby_enemies.get(0).dist;
-            LiquidBrain.AttackPattern pattern = brain.enemyPatterns.get(target.getUniqueId());
+        List<BanditContext.EnemyInfo> enemies = context.environment.nearby_enemies;
+        if (enemies.isEmpty()) return d; // 敵がいない場合はV1のまま
 
-            // --- 1. 敵の時空間パターンマッチング ---
-            double patternMatchScore = 0.0;
-            if (pattern != null && pattern.sampleCount > 2) {
-                long ticksSinceLast = bukkitEntity.getTicksLived() - pattern.lastAttackTick;
-                double timingScore = Math.max(0, 1.0 - Math.abs(ticksSinceLast - pattern.averageInterval) / 20.0);
-                double distScore = Math.max(0, 1.0 - Math.abs(enemyDist - pattern.preferredDist) / 2.0);
-                patternMatchScore = (timingScore * 0.5) + (distScore * 0.5);
+        // --- 1. ターゲットの動的スイッチング (棒立ち・引き回し防止) ---
+        Entity currentTarget = bukkitEntity.getTarget();
+        BanditContext.EnemyInfo closestEnemy = enemies.get(0); // 距離順ソート済み想定
+
+        if (currentTarget instanceof Player) {
+            // 現在のターゲットが15m以上離れ、かつ5m以内に別の敵がいるなら即スイッチ
+            if (currentTarget.getLocation().distance(bukkitEntity.getLocation()) > 15.0 && closestEnemy.dist < 5.0) {
+                bukkitEntity.setTarget((Player) closestEnemy.playerInstance);
+                d.reasoning += " | MULTI: TARGET_SWITCH_PROXIMITY";
             }
-
-            // --- 2. 自己同期ロジック (Self-Sync) ---
-            long ticksSinceSelfLast = bukkitEntity.getTicksLived() - brain.selfPattern.lastAttackTick;
-            double selfAvgInterval = brain.selfPattern.averageInterval;
-            boolean isRecovering = false;
-
-            if (selfAvgInterval > 0) {
-                if (ticksSinceSelfLast > (selfAvgInterval - 10) && ticksSinceSelfLast < selfAvgInterval) {
-                    if (advantage > 0.4) {
-                        d.movement.strategy = "CHARGE";
-                    }
-                } else if (ticksSinceSelfLast >= 0 && ticksSinceSelfLast < 15) {
-                    isRecovering = true;
-                    if (advantage < 0.8) {
-                        d.movement.strategy = "POST_ATTACK_EVADE";
-                    }
+            // 背後(視界外)から至近距離で叩かれそうな場合も、一定確率で振り返り迎撃
+            else if (enemies.size() > 1 && !closestEnemy.in_sight && closestEnemy.dist < 3.0) {
+                if (Math.random() < 0.3) {
+                    bukkitEntity.setTarget((Player) closestEnemy.playerInstance);
+                    d.reasoning += " | MULTI: COUNTER_AMBUSH";
                 }
             }
+        }
 
-            // --- 3. 動的 Epsilon-Greedy による行動選択 ---
-            // 現在の状況をキーに変換
-            String currentStateKey = brain.qTable.getStateKey(advantage, enemyDist, isRecovering);
-            // 行動の選択肢（今後 Actuator に追加する新移動スキルもここに入れる想定）
-            String[] options = {"ATTACK", "EVADE", "BAITING", "COUNTER", "OBSERVE", "RETREAT", "BURST_DASH", "ORBITAL_SLIDE"};
+        // 更新後のターゲット情報を取得
+        Player target = (Player) bukkitEntity.getTarget();
+        if (target == null) return d;
 
-            // 【核心】動的探索率の計算
-            // 基本 10% だが、フラストレーション（0.0~1.0）に応じて最大 50% まで引き上げる
-            double epsilon = 0.1 + (brain.frustration * 0.4);
+        double enemyDist = bukkitEntity.getLocation().distance(target.getLocation());
+        LiquidBrain.AttackPattern pattern = brain.enemyPatterns.get(target.getUniqueId());
 
-            String recommendedAction;
-            if (Math.random() < epsilon) {
-                // 探索モード：ヤケクソ、あるいは新しい可能性の模索
-                recommendedAction = options[new Random().nextInt(options.length)];
-                d.reasoning += " | Q:EXPLORING(e:" + String.format("%.2f", epsilon) + ")";
+        // --- 2. 敵のパターンマッチング & 自己同期 (既存ロジック) ---
+        double patternMatchScore = 0.0;
+        if (pattern != null && pattern.sampleCount > 2) {
+            long ticksSinceLast = bukkitEntity.getTicksLived() - pattern.lastAttackTick;
+            double timingScore = Math.max(0, 1.0 - Math.abs(ticksSinceLast - pattern.averageInterval) / 20.0);
+            double distScore = Math.max(0, 1.0 - Math.abs(enemyDist - pattern.preferredDist) / 2.0);
+            patternMatchScore = (timingScore * 0.5) + (distScore * 0.5);
+        }
+
+        long ticksSinceSelfLast = bukkitEntity.getTicksLived() - brain.selfPattern.lastAttackTick;
+        boolean isRecovering = (brain.selfPattern.averageInterval > 0 && ticksSinceSelfLast < 15);
+
+        // --- 3. 動的 Epsilon-Greedy (複数戦を考慮した状態キー) ---
+        // getStateKeyにenemiesリストを渡し、内部でSOLO/MULTI/GANKEDを判定させる
+        String currentStateKey = brain.qTable.getStateKey(advantage, enemyDist, isRecovering, enemies);
+        String[] options = {"ATTACK", "EVADE", "BAITING", "COUNTER", "OBSERVE", "RETREAT", "BURST_DASH", "ORBITAL_SLIDE"};
+
+        double epsilon = 0.1 + (brain.frustration * 0.4);
+        String recommendedAction;
+        if (Math.random() < epsilon) {
+            recommendedAction = options[new Random().nextInt(options.length)];
+            d.reasoning += " | Q:EXPLORING(e:" + String.format("%.2f", epsilon) + ")";
+        } else {
+            recommendedAction = brain.qTable.getBestAction(currentStateKey, options);
+            d.reasoning += " | Q:BEST_" + recommendedAction;
+        }
+
+        // --- 4. 戦術的分岐 (複数戦の重み付け) ---
+
+        // A. 【圧倒的劣勢】
+        if (advantage < 0.3) {
+            d.decision.action_type = recommendedAction.equals("RETREAT") ? "RETREAT" : "DESPERATE_DEFENSE";
+            d.movement.strategy = d.decision.action_type.equals("RETREAT") ? "RETREAT" : "MAINTAIN_DISTANCE";
+            d.reasoning += " | TACTICAL: DEFENSIVE";
+        }
+        // B. 【カウンター狙い】(複数戦ではリスクが高いため、コンポージャーが高い時のみ)
+        else if (patternMatchScore > 0.7 && brain.composure > 0.6 && !isRecovering && enemies.size() == 1) {
+            d.decision.action_type = "COUNTER";
+            d.movement.strategy = "SIDESTEP_COUNTER";
+            d.decision.use_skill = "Counter_Stance";
+            d.reasoning += " | TACTICAL: PATTERN_READ";
+        }
+        // C. 【圧倒的優勢】
+        else if (advantage > 0.7) {
+            d.decision.action_type = "OVERWHELM";
+            // 複数人に囲まれている(GANKED状態)なら、単調な突進ではなくジグザグを強制
+            d.movement.strategy = enemies.size() > 1 ? "SPRINT_ZIGZAG" : "BURST_DASH";
+            d.decision.use_skill = "Execution_Strike";
+            d.reasoning += " | TACTICAL: AGGRESSIVE";
+        }
+        // D. 【均衡状態 / 複数戦対応】
+        else {
+            d.decision.action_type = recommendedAction;
+
+            // 複数戦(MULTI/GANKED)かつアクションが「RETREAT」や「EVADE」なら
+            // 最も敵が密集していない方向へ逃げるベクトルをActuatorに示唆
+            if (enemies.size() > 1 && (recommendedAction.equals("RETREAT") || recommendedAction.equals("EVADE"))) {
+                d.movement.strategy = "ESCAPE_SQUEEZE"; // 敵の間を抜ける特殊移動
             } else {
-                // 活用モード：過去の成功体験に基づく最適解
-                recommendedAction = brain.qTable.getBestAction(currentStateKey, options);
-                d.reasoning += " | Q:BEST_" + recommendedAction;
-            }
-
-            // --- 4. 戦術的分岐 (Tactical Branching) + Q学習の統合 ---
-
-            // A. 【圧倒的劣勢】
-            if (advantage < 0.3) {
-                d.decision.action_type = recommendedAction.equals("RETREAT") ? "RETREAT" : "DESPERATE_DEFENSE";
-                d.movement.strategy = d.decision.action_type.equals("RETREAT") ? "RETREAT" : "MAINTAIN_DISTANCE";
-                brain.reflex.update(1.0, 0.9);
-                d.reasoning += " | TACTICAL: DEFENSIVE";
-            }
-            // B. 【カウンター狙い】
-            else if (patternMatchScore > 0.7 && brain.composure > 0.4 && !isRecovering) {
-                d.decision.action_type = "COUNTER";
-                d.movement.strategy = "SIDESTEP_COUNTER";
-                d.decision.use_skill = "Counter_Stance";
-                d.reasoning += " | TACTICAL: PATTERN_READ";
-            }
-            // C. 【圧倒的優勢】
-            else if (advantage > 0.7) {
-                d.decision.action_type = "OVERWHELM";
-                d.movement.strategy = "SPRINT_ZIGZAG";
-                d.decision.use_skill = "Execution_Strike";
-                d.reasoning += " | TACTICAL: AGGRESSIVE";
-            }
-            // D. 【均衡状態】: Q学習（または探索行動）を優先
-            else {
-                d.decision.action_type = recommendedAction;
-
-                // 行動に応じた移動戦略の紐付け（Actuator側での実装と同期させる）
                 switch (recommendedAction) {
                     case "EVADE": d.movement.strategy = "SIDESTEP"; break;
                     case "BAITING": d.movement.strategy = "NONE"; break;
                     case "BURST_DASH": d.movement.strategy = "BURST_DASH"; break;
                     case "ORBITAL_SLIDE": d.movement.strategy = "ORBITAL_SLIDE"; break;
-                    case "RETREAT": d.movement.strategy = "RETREAT"; break;
                     default: d.movement.strategy = "MAINTAIN_DISTANCE"; break;
                 }
-
-                if (recommendedAction.equals("BAITING") && brain.frustration < 0.3) {
-                    d.communication.voice_line = "Is that all you've got?";
-                }
-                d.reasoning += " | TACTICAL: Q_BALANCED";
             }
-
-            // 学習更新用に、今回選んだ状態と行動を脳に記憶させる
-            brain.lastStateKey = currentStateKey;
-            brain.lastActionType = d.decision.action_type;
+            d.reasoning += " | TACTICAL: Q_BALANCED";
         }
+
+        brain.lastStateKey = currentStateKey;
+        brain.lastActionType = d.decision.action_type;
 
         return d;
     }

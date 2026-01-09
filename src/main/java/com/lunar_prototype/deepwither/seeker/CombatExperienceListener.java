@@ -12,6 +12,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.player.PlayerAnimationEvent;
 import org.bukkit.util.Vector;
 
+import java.util.List;
 import java.util.Optional;
 
 public class CombatExperienceListener implements Listener {
@@ -28,35 +29,42 @@ public class CombatExperienceListener implements Listener {
         // --- 1. Mobがダメージを与えた場合 (成功体験) ---
         if (event.getDamager() instanceof Mob) {
             Mob attacker = (Mob) event.getDamager();
+
+            // 与ダメージ報酬（ターゲットへの攻撃成功）
+            // 第4引数: evaded=false, 第5引数: damager=null (自分が攻撃側なので不要)
+            applyLearning(attacker, damage, 0.0, false, null);
+
             // 既存のReward処理
             handleReward(attacker, 0.3);
-
-            // Q-Learning: ダメージを与えたのでプラスの報酬
-            applyLearning(attacker, damage, 0.0,false);
-
-            // 戦術メモリーの更新
             getBrain(attacker).ifPresent(brain -> brain.tacticalMemory.myHits++);
         }
 
-        // --- 2. Mobがダメージを受けた場合 (失敗体験 & 攻撃パターンの学習) ---
+        // --- 2. Mobがダメージを受けた場合 (失敗体験 & 複数戦の学習) ---
         if (event.getEntity() instanceof Mob) {
             Mob victim = (Mob) event.getEntity();
+            Entity damager = event.getDamager();
 
-            // 既存のPenalty処理
-            handlePenaltyAndPattern(victim, event.getDamager(), 0.5);
-
-            // Q-Learning: ダメージを受けたのでマイナスの報酬
-            applyLearning(victim, 0.0, damage,false);
+            // Q-Learning: ダメージを受けた報酬処理
+            // 第5引数に damager を渡すことで、内部で「ターゲット以外からの被弾（横槍）」を判定可能にする
+            applyLearning(victim, 0.0, damage, false, damager);
 
             // 被弾による戦術メモリーの更新
             getBrain(victim).ifPresent(brain -> brain.tacticalMemory.takenHits++);
 
+            // 既存のPenalty処理
+            handlePenaltyAndPattern(victim, damager, 0.5);
+
             // 相手がプレイヤーなら攻撃パターンを詳細に記録
-            if (event.getDamager() instanceof Player) {
-                Player p = (Player) event.getDamager();
+            if (damager instanceof Player) {
+                Player p = (Player) damager;
                 getBrain(victim).ifPresent(brain -> {
                     double dist = p.getLocation().distance(victim.getLocation());
-                    // isMiss = false (命中弾) として記録
+                    // 被弾した瞬間、ターゲットが遠くにいるなら、この攻撃者へ即座にヘイトを向ける検討
+                    if (victim.getTarget() == null || victim.getLocation().distance(victim.getTarget().getLocation()) > 10.0) {
+                        if (Math.random() < 0.5) victim.setTarget(p); // 50%で反撃対象を切り替え
+                    }
+
+                    // 攻撃パターンのサンプリング
                     brain.recordAttack(p.getUniqueId(), victim.getTicksLived(), dist, false, null, null);
                 });
             }
@@ -130,46 +138,53 @@ public class CombatExperienceListener implements Listener {
                 .map(am -> aiEngine.getBrain(am.getUniqueId()));
     }
 
+    // A. 通常のダメージ・回避用（引数4つ）
     public void applyLearning(Mob mob, double damageDealt, double damageTaken, boolean evaded) {
-        // OptionalをifPresentで展開して処理する
+        // 内部的に damager = null としてメインロジックを呼ぶ
+        applyLearning(mob, damageDealt, damageTaken, evaded, null);
+    }
+
+    // B. メインロジック：横槍判定（damager）を含む完全版
+    public void applyLearning(Mob mob, double damageDealt, double damageTaken, boolean evaded, Entity damager) {
         getBrain(mob).ifPresent(brain -> {
             double reward = 0.0;
 
-            // 1. ダメージベースの報酬
-            // 与えたダメージは正義、受けたダメージは反省
-            reward += (damageDealt * 2.0);
+            // 1. 基本報酬
+            reward += (damageDealt * 2.5);
             reward -= (damageTaken * 1.5);
+            if (evaded) reward += 1.5;
 
-            if (evaded) {
-                reward += 1.5; // 被弾を抑えたことへの大きな報酬
+            // 2. 横槍ペナルティ (ターゲット以外からの被弾)
+            if (damageTaken > 0 && damager != null) {
+                Entity target = mob.getTarget();
+                if (target != null && !damager.getUniqueId().equals(target.getUniqueId())) {
+                    reward -= 5.0; // 強烈な反省
+                    brain.frustration += 0.2; // ストレス増で探索率アップ
+                }
             }
 
-            // 2. 状況ベースの報酬（ハメ対策）
+            // 3. 槍の間合い突破ボーナス
             if (mob.getTarget() instanceof Player) {
                 double dist = mob.getLocation().distance(mob.getTarget().getLocation());
-
-                // 槍の間合い（4~6m程度）を潰して接近できたらボーナス報酬
-                // damageTakenが少ない状態で接近できた＝上手く潜り込めたと判定
                 if (dist < 3.0 && damageTaken < 2.0) {
                     reward += 1.0;
                 }
             }
 
-            // 3. Q-Tableの更新
-            // 次の状態（Next State）を推測してQ値を更新する
+            // 4. 次の状態(Next State)の取得
+            // SensorProvider経由で最新の敵リストを取得してKeyを生成
+            List<BanditContext.EnemyInfo> enemies = new SensorProvider().scanEnemies(mob, mob.getNearbyEntities(32, 32, 32));
             String nextState = brain.qTable.getStateKey(
                     brain.tacticalMemory.combatAdvantage,
                     mob.getTarget() != null ? mob.getLocation().distance(mob.getTarget().getLocation()) : 20.0,
-                    false // 次の状態の回復フラグは簡略化
+                    false,
+                    enemies
             );
 
-            // 前回の行動がこの結果を招いたとして学習
-            brain.qTable.update(
-                    brain.lastStateKey,
-                    brain.lastActionType,
-                    reward,
-                    nextState
-            );
+            // 5. 学習更新
+            if (brain.lastStateKey != null && brain.lastActionType != null) {
+                brain.qTable.update(brain.lastStateKey, brain.lastActionType, reward, nextState);
+            }
         });
     }
 }
