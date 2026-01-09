@@ -61,6 +61,10 @@ public class DeepwitherCommand implements CommandExecutor, TabCompleter {
 
         switch (action) {
             case "generate" -> {
+                if (!player.hasPermission("deepwither.admin")) {
+                    player.sendMessage("§c権限がありません。");
+                    return;
+                }
                 // /dw dungeon generate <name> (maxLengthはconfig参照とするか固定にする)
                 if (args.length < 3) {
                     player.sendMessage("§c使用法: /dw dungeon generate <ダンジョンタイプ>");
@@ -71,6 +75,10 @@ public class DeepwitherCommand implements CommandExecutor, TabCompleter {
                         .createInstance(player, dungeonType);
             }
             case "join" -> {
+                if (!player.hasPermission("deepwither.admin")) {
+                    player.sendMessage("§c権限がありません。");
+                    return;
+                }
                 // /dw dungeon join <instanceId> (デバッグ用: 本来はGUIや看板から)
                 if (args.length < 3) {
                     player.sendMessage("§c使用法: /dw dungeon join <インスタンスID>");

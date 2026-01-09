@@ -72,4 +72,3 @@ commands:
   deepwither:
     description: Deepwither main admin command
     aliases: [ dw ]
-    permission: deepwither.admin
