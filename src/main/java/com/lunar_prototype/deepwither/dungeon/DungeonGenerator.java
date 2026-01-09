@@ -37,12 +37,16 @@ public class DungeonGenerator {
     private final List<PlacedPart> placedParts = new ArrayList<>();
 
     private static class PlacedPart {
-        DungeonPart part;
-        BlockVector3 minBound; // World coordinates
-        BlockVector3 maxBound; // World coordinates
+        private final DungeonPart part;
+        private final BlockVector3 origin;
+        private final int rotation;
+        private final BlockVector3 minBound; // World coordinates
+        private final BlockVector3 maxBound; // World coordinates
 
         public PlacedPart(DungeonPart part, BlockVector3 origin, int rotation) {
             this.part = part;
+            this.origin = origin;
+            this.rotation = rotation;
             // Calculate world bounds based on rotation
             BlockVector3 min = part.getMinPoint();
             BlockVector3 max = part.getMaxPoint();
@@ -173,7 +177,7 @@ public class DungeonGenerator {
         // For 'straight' gen compat:
         int finalStartRotation = startRotation + 180;
 
-        if (pastePart(world, startOrigin, startPart, finalStartRotation)) {
+        if (pastePart(world, startOrigin, startPart, finalStartRotation, null)) {
             // Recurse
             generateRecursive(world, startPart, startOrigin, finalStartRotation, 1, maxDepth, 0);
         }
@@ -264,7 +268,7 @@ public class DungeonGenerator {
                                     nextPart.getFileName(), type, nextOrigin, nextRotation, chainLength, localExitYaw,
                                     exitWorldYaw));
 
-                            if (pastePart(world, nextOrigin, nextPart, nextRotation)) {
+                            if (pastePart(world, nextOrigin, nextPart, nextRotation, currentOrigin)) {
                                 int newChain = type.equals("HALLWAY") ? chainLength + 1 : 0;
                                 generateRecursive(world, nextPart, nextOrigin, nextRotation, depth + 1, maxDepth,
                                         newChain);
@@ -284,7 +288,7 @@ public class DungeonGenerator {
 
             // If failed to place anything (Collision or Change skipped), Cap it.
             if (!placedInfo) {
-                placeCap(world, connectionPoint, exitWorldYaw);
+                placeCap(world, connectionPoint, exitWorldYaw, currentOrigin);
             }
         }
     }
@@ -299,11 +303,11 @@ public class DungeonGenerator {
             int localExitYaw = currentPart.getExitDirection(originalExit);
             int exitWorldYaw = (localExitYaw - currentRot + 360) % 360;
 
-            placeCap(world, connectionPoint, exitWorldYaw);
+            placeCap(world, connectionPoint, exitWorldYaw, currentOrigin);
         }
     }
 
-    private void placeCap(World world, BlockVector3 connectionPoint, int exitWorldYaw) {
+    private void placeCap(World world, BlockVector3 connectionPoint, int exitWorldYaw, BlockVector3 parentOrigin) {
         // Try CAP then ENTRANCE (as fallback)
         List<String> capTypes = new ArrayList<>();
         capTypes.add("CAP");
@@ -327,7 +331,7 @@ public class DungeonGenerator {
                 Deepwither.getInstance().getLogger()
                         .info("Attempting CAP with " + capPart.getFileName() + " at " + connectionPoint);
 
-                if (pastePart(world, nextOrigin, capPart, nextRotation)) {
+                if (pastePart(world, nextOrigin, capPart, nextRotation, parentOrigin)) {
                     Deepwither.getInstance().getLogger().info("Placed CAP at " + connectionPoint);
                     return; // Capped successfully
                 }
@@ -344,12 +348,17 @@ public class DungeonGenerator {
         }
     }
 
-    private boolean pastePart(World world, BlockVector3 origin, DungeonPart part, int rotation) {
+    private boolean pastePart(World world, BlockVector3 origin, DungeonPart part, int rotation,
+            BlockVector3 ignoreOrigin) {
         // 1. Create Collision Box Candidate
         PlacedPart candidate = new PlacedPart(part, origin, rotation);
 
         // 2. Check overlap
         for (PlacedPart existing : placedParts) {
+            // Ignore collision with parent part (Source of connection)
+            if (ignoreOrigin != null && existing.origin.equals(ignoreOrigin))
+                continue;
+
             if (candidate.intersects(existing)) {
                 Deepwither.getInstance().getLogger().info("Collision detected at " + origin);
                 return false;
