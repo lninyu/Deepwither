@@ -95,14 +95,9 @@ public class DungeonGenerator {
             return BlockVector3.at(Math.round(v.getX()), Math.round(v.getY()), Math.round(v.getZ()));
         }
 
-        public boolean intersects(PlacedPart other) {
-            // AABB Collision Check with 2 block buffer to allow wall merging
-            // Relaxed from 1 to 2 based on user feedback (too sensitive)
-            return this.minBound.getX() < other.maxBound.getX() - 3 && this.maxBound.getX() > other.minBound.getX() + 3
-                    &&
-                    this.minBound.getY() < other.maxBound.getY() && this.maxBound.getY() > other.minBound.getY() &&
-                    this.minBound.getZ() < other.maxBound.getZ() - 3
-                    && this.maxBound.getZ() > other.minBound.getZ() + 3;
+        public Region getRegion() {
+            return new CuboidRegion(BukkitAdapter.adapt(Deepwither.getInstance().getServer().getWorlds().get(0)),
+                    minBound, maxBound);
         }
     }
 
@@ -385,21 +380,48 @@ public class DungeonGenerator {
         }
     }
 
+    private boolean isCollision(BlockVector3 min, BlockVector3 max, BlockVector3 ignoreOrigin) {
+        // Shrink slightly in X and Z to allow touching faces (1 block buffer)
+        int testMinX = min.getX() + 1;
+        int testMaxX = max.getX() - 1;
+        int testMinZ = min.getZ() + 1;
+        int testMaxZ = max.getZ() - 1;
+
+        if (testMinX > testMaxX || testMinZ > testMaxZ) {
+            // Region too small, just check center point
+            int midX = (min.getX() + max.getX()) / 2;
+            int midZ = (min.getZ() + max.getZ()) / 2;
+            testMinX = testMaxX = midX;
+            testMinZ = testMaxZ = midZ;
+        }
+
+        for (PlacedPart existing : placedParts) {
+            // Ignore the direct parent to allow seamless connection
+            if (ignoreOrigin != null && existing.origin.equals(ignoreOrigin)) {
+                continue;
+            }
+
+            // AABB Collision Check
+            boolean overlap = testMinX <= existing.maxBound.getX() && testMaxX >= existing.minBound.getX() &&
+                    min.getY() <= existing.maxBound.getY() && max.getY() >= existing.minBound.getY() &&
+                    testMinZ <= existing.maxBound.getZ() && testMaxZ >= existing.minBound.getZ();
+
+            if (overlap) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private boolean pastePart(World world, BlockVector3 origin, DungeonPart part, int rotation,
             BlockVector3 ignoreOrigin) {
-        // 1. Create Collision Box Candidate
+        // 1. Calculate world bounds for this part
         PlacedPart candidate = new PlacedPart(part, origin, rotation);
 
-        // 2. Check overlap
-        for (PlacedPart existing : placedParts) {
-            // Ignore collision with parent part (Source of connection)
-            if (ignoreOrigin != null && existing.origin.equals(ignoreOrigin))
-                continue;
-
-            if (candidate.intersects(existing)) {
-                Deepwither.getInstance().getLogger().info("Collision detected at " + origin);
-                return false;
-            }
+        // 2. Check overlap using shrunken 'interior' bounds
+        if (isCollision(candidate.minBound, candidate.maxBound, ignoreOrigin)) {
+            Deepwither.getInstance().getLogger().info("Collision detected at " + origin);
+            return false;
         }
 
         // 3. Paste
@@ -470,13 +492,19 @@ public class DungeonGenerator {
         // Schedule for next tick to ensure WorldEdit changes are applied
         Bukkit.getScheduler().runTask(Deepwither.getInstance(), () -> {
             Location loc = new Location(world, pos.getX(), pos.getY(), pos.getZ());
-            if (loc.getBlock().getType() == expectedType) {
+            Material currentType = loc.getBlock().getType();
+
+            // At connections, GOLD and IRON often overlap and override each other.
+            // GOLD, IRON, REDSTONE, EMERALD are all markers that should be removed.
+            boolean isMarker = currentType == Material.GOLD_BLOCK || currentType == Material.IRON_BLOCK ||
+                    currentType == Material.REDSTONE_BLOCK || currentType == Material.EMERALD_BLOCK;
+
+            if (isMarker) {
                 loc.getBlock().setType(Material.AIR);
-                Deepwither.getInstance().getLogger().info("Removed marker " + expectedType + " at " + pos);
-            } else {
-                Deepwither.getInstance().getLogger().warning(
-                        "Expected " + expectedType + " at " + pos + " but found " + loc.getBlock().getType());
+                Deepwither.getInstance().getLogger().info("Removed marker " + currentType + " at " + pos);
             }
+            // else: silently skip, could be already removed or overridden by a structural
+            // block
         });
     }
 
