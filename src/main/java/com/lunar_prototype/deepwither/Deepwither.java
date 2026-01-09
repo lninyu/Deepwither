@@ -213,6 +213,10 @@ public final class Deepwither extends JavaPlugin {
         return mobSpawnManager;
     }
 
+    public LootChestManager getLootChestManager() {
+        return lootChestManager;
+    }
+
     public ItemNameResolver getItemNameResolver() {
         return itemNameResolver;
     }

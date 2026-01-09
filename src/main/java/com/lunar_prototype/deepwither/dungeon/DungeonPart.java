@@ -22,6 +22,10 @@ public class DungeonPart {
     // Multiple exits support
     private final List<BlockVector3> exitOffsets = new ArrayList<>();
 
+    // Spawn Markers
+    private final List<BlockVector3> mobMarkers = new ArrayList<>();
+    private final List<BlockVector3> lootMarkers = new ArrayList<>();
+
     // Bounding Box relative to Origin
     private BlockVector3 minPoint;
     private BlockVector3 maxPoint;
@@ -76,6 +80,14 @@ public class DungeonPart {
                 Deepwither.getInstance().getLogger().info(String.format(
                         "[%s] Found EXIT(Iron). Pos:%s - Origin:%s = %s (Forced Flat Y=%d)",
                         fileName, pos, origin, exitVec, entryY));
+            }
+            // ★ Mob Spawn Marker (Redstone Block)
+            else if (block.getBlockType().equals(BlockTypes.REDSTONE_BLOCK)) {
+                this.mobMarkers.add(pos.subtract(origin));
+            }
+            // ★ Loot Chest Marker (Emerald Block)
+            else if (block.getBlockType().equals(BlockTypes.EMERALD_BLOCK)) {
+                this.lootMarkers.add(pos.subtract(origin));
             }
         }
 
@@ -157,6 +169,14 @@ public class DungeonPart {
 
     public List<BlockVector3> getExitOffsets() {
         return exitOffsets;
+    }
+
+    public List<BlockVector3> getMobMarkers() {
+        return mobMarkers;
+    }
+
+    public List<BlockVector3> getLootMarkers() {
+        return lootMarkers;
     }
 
     public BlockVector3 getMinPoint() {

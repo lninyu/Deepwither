@@ -36,6 +36,14 @@ public class DungeonGenerator {
     // Store placed parts for collision detection
     private final List<PlacedPart> placedParts = new ArrayList<>();
 
+    // Configuration & Spawns
+    private int maxDepth = 10;
+    private final List<String> mobIds = new ArrayList<>();
+    private String lootChestTemplate = null;
+
+    private final List<Location> pendingMobSpawns = new ArrayList<>();
+    private final List<Location> pendingLootSpawns = new ArrayList<>();
+
     private static class PlacedPart {
         private final DungeonPart part;
         private final BlockVector3 origin;
@@ -111,6 +119,11 @@ public class DungeonGenerator {
         }
         YamlConfiguration config = YamlConfiguration.loadConfiguration(configFile);
 
+        this.maxDepth = config.getInt("max_depth", 10);
+        this.lootChestTemplate = config.getString("loot_chest");
+        this.mobIds.clear();
+        this.mobIds.addAll(config.getStringList("mobs"));
+
         List<Map<?, ?>> maps = config.getMapList("parts");
 
         for (Map<?, ?> rawMap : maps) {
@@ -151,9 +164,19 @@ public class DungeonGenerator {
 
     /**
      * 新しい分岐生成メソッド (再帰的)
+     * Configから読み込んだ maxDepth を使用
+     */
+    public void generateBranching(World world, int startRotation) {
+        generateBranching(world, this.maxDepth, startRotation);
+    }
+
+    /**
+     * 新しい分岐生成メソッド (再帰的)
      */
     public void generateBranching(World world, int maxDepth, int startRotation) {
         placedParts.clear();
+        pendingMobSpawns.clear();
+        pendingLootSpawns.clear();
         Deepwither.getInstance().getLogger().info("=== 生成開始: Branching Dungeon (MaxDepth:" + maxDepth + ") ===");
 
         // 基準点
@@ -402,6 +425,21 @@ public class DungeonGenerator {
                 removeMarker(world, origin.add(exit), Material.IRON_BLOCK);
             }
 
+            // Process Mob Markers
+            for (BlockVector3 mobMarker : part.getMobMarkers()) {
+                BlockVector3 worldPos = origin.add(rotateVector(mobMarker, rotation));
+                removeMarker(world, worldPos, Material.REDSTONE_BLOCK);
+                pendingMobSpawns
+                        .add(new Location(world, worldPos.getX() + 0.5, worldPos.getY(), worldPos.getZ() + 0.5));
+            }
+
+            // Process Loot Markers
+            for (BlockVector3 lootMarker : part.getLootMarkers()) {
+                BlockVector3 worldPos = origin.add(rotateVector(lootMarker, rotation));
+                removeMarker(world, worldPos, Material.EMERALD_BLOCK);
+                pendingLootSpawns.add(new Location(world, worldPos.getX(), worldPos.getY(), worldPos.getZ()));
+            }
+
             placedParts.add(candidate);
             Deepwither.getInstance().getLogger().info("Placed " + part.getType() + " at " + origin);
             return true;
@@ -431,5 +469,28 @@ public class DungeonGenerator {
         if (valid.isEmpty())
             return null;
         return valid.get(random.nextInt(valid.size()));
+    }
+
+    // Helpers
+    private BlockVector3 rotateVector(BlockVector3 vec, int angle) {
+        AffineTransform transform = new AffineTransform().rotateY(angle);
+        var v = transform.apply(vec.toVector3());
+        return BlockVector3.at(Math.round(v.getX()), Math.round(v.getY()), Math.round(v.getZ()));
+    }
+
+    public List<Location> getPendingMobSpawns() {
+        return pendingMobSpawns;
+    }
+
+    public List<Location> getPendingLootSpawns() {
+        return pendingLootSpawns;
+    }
+
+    public List<String> getMobIds() {
+        return mobIds;
+    }
+
+    public String getLootChestTemplate() {
+        return lootChestTemplate;
     }
 }
