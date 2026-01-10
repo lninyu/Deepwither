@@ -99,9 +99,11 @@ public class DungeonGenerator {
         }
 
         private BlockVector3 rotate(int x, int y, int z, int angle) {
-            // Convert Clockwise (Minecraft Yaw) to Counter-Clockwise (WorldEdit
-            // AffineTransform)
-            int weAngle = (360 - (angle % 360)) % 360;
+            int normalizedAngle = angle % 360;
+            if (normalizedAngle < 0)
+                normalizedAngle += 360;
+
+            int weAngle = (360 - normalizedAngle) % 360;
             AffineTransform transform = new AffineTransform().rotateY(weAngle);
             var v = transform.apply(BlockVector3.at(x, y, z).toVector3());
             return BlockVector3.at(Math.round(v.getX()), Math.round(v.getY()), Math.round(v.getZ()));
@@ -374,25 +376,20 @@ public class DungeonGenerator {
             Collections.shuffle(candidates);
 
             for (DungeonPart capPart : candidates) {
-                // Align Cap Intrinsic Yaw to Exit World Yaw
-                // Default: Match flow direction (Parent Exit -> Child Entry -> Child Exit)
-                int baseRotation = (capPart.getIntrinsicYaw() - exitWorldYaw + 360) % 360;
-
-                // Fix for Cap: Rotate 180 degrees to face 'inwards' or block correctly?
-                // Based on user feedback that rotation is wrong, attempting 180 flip.
-                int nextRotation = (baseRotation + 180) % 360;
+                // Calculate Rotation: Target - Intrinsic = Rot
+                int nextRotation = (exitWorldYaw - capPart.getIntrinsicYaw() + 360) % 360;
 
                 BlockVector3 nextEntryRotated = capPart.getRotatedEntryOffset(nextRotation);
-                BlockVector3 nextOrigin = connectionPoint.subtract(nextEntryRotated);
+                BlockVector3 capOrigin = connectionPoint.subtract(nextEntryRotated);
 
                 Deepwither.getInstance().getLogger()
-                        .info(String.format("Attempting CAP [%s] at %s | ExYaw:%d IntYaw:%d -> BaseRot:%d FinalRot:%d",
+                        .info(String.format("Attempting CAP [%s] at %s | ExYaw:%d IntYaw:%d -> FinalRot:%d",
                                 capPart.getFileName(), connectionPoint, exitWorldYaw, capPart.getIntrinsicYaw(),
-                                baseRotation, nextRotation));
+                                nextRotation));
 
-                if (pastePart(world, nextOrigin, capPart, nextRotation, ancestors)) {
+                if (pastePart(world, capOrigin, capPart, nextRotation, ancestors)) {
                     Deepwither.getInstance().getLogger().info("Placed CAP at " + connectionPoint);
-                    return; // Capped successfully
+                    return; // Success
                 }
             }
         }

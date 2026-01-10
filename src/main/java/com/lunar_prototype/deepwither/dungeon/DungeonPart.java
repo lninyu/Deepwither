@@ -126,7 +126,7 @@ public class DungeonPart {
         int dx = primExit.getX();
         int dz = primExit.getZ();
 
-        if (Math.abs(dx) > Math.abs(dz)) {
+        if (Math.abs(dx) >= Math.abs(dz)) {
             this.intrinsicYaw = (dx > 0) ? 270 : 90;
         } else {
             this.intrinsicYaw = (dz > 0) ? 0 : 180;
@@ -208,7 +208,7 @@ public class DungeonPart {
         int dx = exit.getX();
         int dz = exit.getZ();
 
-        if (Math.abs(dx) > Math.abs(dz)) {
+        if (Math.abs(dx) >= Math.abs(dz)) {
             return (dx > 0) ? 270 : 90;
         } else {
             return (dz > 0) ? 0 : 180;
