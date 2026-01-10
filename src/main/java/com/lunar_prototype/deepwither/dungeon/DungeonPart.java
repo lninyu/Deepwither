@@ -16,14 +16,11 @@ public class DungeonPart {
     private final int length;
 
     // Origin(Schematic保存時の立ち位置)からの相対座標
+    // private BlockVector3 entryOffset = BlockVector3.ZERO;
     private int entryX, entryY, entryZ;
 
     // Multiple exits support
     private final List<BlockVector3> exitOffsets = new ArrayList<>();
-
-    // Spawn Markers (Preserved feature)
-    private final List<BlockVector3> mobMarkers = new ArrayList<>();
-    private final List<BlockVector3> lootMarkers = new ArrayList<>();
 
     // Bounding Box relative to Origin
     private BlockVector3 minPoint;
@@ -46,46 +43,50 @@ public class DungeonPart {
         this.maxPoint = clipboard.getRegion().getMaximumPoint().subtract(origin);
 
         Deepwither.getInstance().getLogger()
-                .info(String.format("[%s] Scanning Part. Origin:%s | Bounds Rel:[%s, %s]",
-                        fileName, origin, minPoint, maxPoint));
+                .info(String.format("[%s] Scanning Part (ID:%d). Origin:%s | Bounds Rel:[%s, %s]",
+                        fileName, System.identityHashCode(this), origin, minPoint, maxPoint));
 
         boolean foundEntry = false;
-        this.exitOffsets.clear();
-        this.mobMarkers.clear();
-        this.lootMarkers.clear();
 
         for (BlockVector3 pos : clipboard.getRegion()) {
             var block = clipboard.getFullBlock(pos);
 
-            // 金ブロック (入口)
-            if (foundEntry == false && block.getBlockType().equals(BlockTypes.GOLD_BLOCK)) {
+            // 金ブロック (入口) -> 接続元を受け入れる場所
+            if (block.getBlockType().equals(BlockTypes.GOLD_BLOCK)) {
                 this.entryX = pos.getX() - origin.getX();
                 this.entryY = pos.getY() - origin.getY();
                 this.entryZ = pos.getZ() - origin.getZ();
+
+                Deepwither.getInstance().getLogger().info(String.format(
+                        "[%s] Found ENTRY(Gold). Pos:%s - Origin:%s = %d,%d,%d",
+                        fileName, pos, origin, entryX, entryY, entryZ));
                 foundEntry = true;
             }
-            // 鉄ブロック (出口)
+            // 鉄ブロック (出口) -> 次のパーツへ接続する場所
             else if (block.getBlockType().equals(BlockTypes.IRON_BLOCK)) {
-                // Force Flat Y
+                // Force Flat: Use Entry Y for Exit Y to prevent climbing
+                // Assuming flat dungeon design as per user request
                 BlockVector3 exitVec = BlockVector3.at(
                         pos.getX() - origin.getX(),
-                        this.entryY,
+                        this.entryY, // Force Y to match Entry
                         pos.getZ() - origin.getZ());
+
                 this.exitOffsets.add(exitVec);
-            }
-            // Mob Marker (Redstone)
-            else if (block.getBlockType().equals(BlockTypes.REDSTONE_BLOCK)) {
-                this.mobMarkers.add(pos.subtract(origin));
-            }
-            // Loot Marker (Emerald)
-            else if (block.getBlockType().equals(BlockTypes.EMERALD_BLOCK)) {
-                this.lootMarkers.add(pos.subtract(origin));
+
+                Deepwither.getInstance().getLogger().info(String.format(
+                        "[%s] Found EXIT(Iron). Pos:%s - Origin:%s = %s (Forced Flat Y=%d)",
+                        fileName, pos, origin, exitVec, entryY));
             }
         }
 
         if (!foundEntry) {
             Deepwither.getInstance().getLogger()
-                    .warning("[" + fileName + "] No Gold Block found. Assuming (0,0,0).");
+                    .warning("[" + fileName + "] Warning: No Gold Block (Entry) found. Assuming (0,0,0).");
+        }
+
+        if (exitOffsets.isEmpty() && !type.equals("ROOM")) {
+            Deepwither.getInstance().getLogger()
+                    .info("[" + fileName + "] Info: No Iron Block (Exit) found. (Normal for dead-ends)");
         }
 
         calculateIntrinsicYaw();
@@ -106,28 +107,39 @@ public class DungeonPart {
         } else {
             this.intrinsicYaw = (dz > 0) ? 0 : 180;
         }
+        Deepwither.getInstance().getLogger().info("[" + fileName + "] Intrinsic Yaw: " + intrinsicYaw);
     }
 
     public int getIntrinsicYaw() {
         return intrinsicYaw;
     }
 
+    /**
+     * 回転後の「入口」オフセットを取得
+     */
     public BlockVector3 getRotatedEntryOffset(int rotation) {
         return transformVector(getEntryOffset(), rotation);
     }
 
+    /**
+     * 回転後の「出口」オフセットリストを取得
+     */
     public List<BlockVector3> getRotatedExitOffsets(int rotation) {
         return exitOffsets.stream()
                 .map(vec -> transformVector(vec, rotation))
                 .collect(Collectors.toList());
     }
 
+    /**
+     * Y軸周りの回転 (WorldEdit仕様)
+     */
     private BlockVector3 transformVector(BlockVector3 vec, int angle) {
         if (vec == null)
-            return BlockVector3.at(0, 0, 0);
-        int normalizedAngle = (angle % 360 + 360) % 360;
-        if (normalizedAngle == 0)
-            return vec;
+            return BlockVector3.ZERO;
+
+        int normalizedAngle = angle % 360;
+        if (normalizedAngle < 0)
+            normalizedAngle += 360;
 
         AffineTransform transform = new AffineTransform().rotateY(normalizedAngle);
         var v3 = transform.apply(vec.toVector3());
@@ -138,12 +150,9 @@ public class DungeonPart {
         return BlockVector3.at(entryX, entryY, entryZ);
     }
 
-    public List<BlockVector3> getMobMarkers() {
-        return mobMarkers;
-    }
-
-    public List<BlockVector3> getLootMarkers() {
-        return lootMarkers;
+    // Deprecated or used for primary exit if needed
+    public BlockVector3 getFirstExitOffset() {
+        return exitOffsets.isEmpty() ? BlockVector3.ZERO : exitOffsets.get(0);
     }
 
     public List<BlockVector3> getExitOffsets() {
@@ -159,6 +168,24 @@ public class DungeonPart {
     }
 
     public int getExitDirection(BlockVector3 exit) {
+        // Determine direction based on which face the exit is on
+        int tolerance = 1;
+
+        // Check Z faces
+        if (Math.abs(exit.getZ() - maxPoint.getZ()) <= tolerance)
+            return 0; // South (+Z)
+        if (Math.abs(exit.getZ() - minPoint.getZ()) <= tolerance)
+            return 180; // North (-Z)
+
+        // Check X faces
+        if (Math.abs(exit.getX() - maxPoint.getX()) <= tolerance)
+            return 270; // East (+X)
+        if (Math.abs(exit.getX() - minPoint.getX()) <= tolerance)
+            return 90; // West (-X)
+
+        // Fallback to vector heuristic if not on face (should rarely happen for valid
+        // dungeons)
+        Deepwither.getInstance().getLogger().warning("Exit not on bounding box face! Using vector heuristic: " + exit);
         int dx = exit.getX() - entryX;
         int dz = exit.getZ() - entryZ;
         if (Math.abs(dx) > Math.abs(dz)) {

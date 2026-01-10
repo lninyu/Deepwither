@@ -1,10 +1,8 @@
 package com.lunar_prototype.deepwither.dungeon.instance;
 
 import com.lunar_prototype.deepwither.Deepwither;
-import com.lunar_prototype.deepwither.MobSpawnManager;
 import com.lunar_prototype.deepwither.dungeon.DungeonGenerator;
 import com.lunar_prototype.deepwither.util.IManager;
-import com.lunar_prototype.deepwither.loot.LootChestManager;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
@@ -38,10 +36,6 @@ public class DungeonInstanceManager implements IManager {
     public void init() {
         // 1分ごとにクリーンアップタスクを実行
         cleanupTask = Bukkit.getScheduler().runTaskTimer(plugin, this::cleanupInactiveInstances, 1200L, 1200L);
-
-        // 1秒ごとに遅延スポーンチェック
-        Bukkit.getScheduler().runTaskTimer(plugin, this::checkProximitySpawns, 20L, 20L);
-
         plugin.getLogger().info("DungeonInstanceManager initialized.");
     }
 
@@ -87,31 +81,15 @@ public class DungeonInstanceManager implements IManager {
         // Gamerule設定
         world.setGameRule(GameRule.DO_MOB_SPAWNING, false); // ダンジョン独自のスポーンを使うならFalse
         world.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
-        world.setGameRule(GameRule.KEEP_INVENTORY, true); // ★ Keep Inventory Enabled
         world.setTime(18000); // Midnight
 
         // ダンジョン生成実行
         DungeonGenerator generator = new DungeonGenerator(dungeonType);
-        // 生成設定: Configから読み込んだdepthを使用
-        generator.generateBranching(world, 0);
+        // 生成設定: depth 10, startRotation 0 (仮)
+        generator.generateBranching(world, 10, 0);
 
         // インスタンス管理に追加
         DungeonInstance dInstance = new DungeonInstance(worldName, world);
-
-        // Lazy Spawn設定（Mobは遅延、Lootは即座）
-        dInstance.setPendingSpawnData(generator.getPendingMobSpawns(), generator.getMobIds());
-
-        // Lootチェストは即座に配置
-        String lootTemplate = generator.getLootChestTemplate();
-        if (lootTemplate != null) {
-            LootChestManager lootManager = plugin.getLootChestManager();
-            if (lootManager != null) {
-                for (Location loc : generator.getPendingLootSpawns()) {
-                    lootManager.placeDungeonLootChest(loc, lootTemplate);
-                }
-            }
-        }
-
         activeInstances.put(worldName, dInstance);
 
         // ホストを参加させる
@@ -141,11 +119,7 @@ public class DungeonInstanceManager implements IManager {
         dInstance.addPlayer(player.getUniqueId());
         playerInstanceMap.put(player.getUniqueId(), instanceId);
 
-        // Join Message & Title
-        player.sendMessage(ChatColor.GREEN + ">> ダンジョンインスタンスに侵入しました。");
-        player.sendMessage(ChatColor.GREEN + ">> 脱出するには " + ChatColor.YELLOW + "/dw dungeon leave" + ChatColor.GREEN
-                + " と入力してください。");
-        player.sendTitle(ChatColor.RED + "Dungeon Started", ChatColor.GRAY + "KeepInventory: ON", 10, 70, 20);
+        player.sendMessage(ChatColor.GREEN + "ダンジョンに参加しました！");
     }
 
     /**
@@ -241,55 +215,6 @@ public class DungeonInstanceManager implements IManager {
         }
 
         activeInstances.remove(worldName);
-    }
-
-    /**
-     * 遅延スポーンチェック: プレイヤーが未スポーン地点に接近したらスポーン
-     */
-    private void checkProximitySpawns() {
-        for (DungeonInstance instance : activeInstances.values()) {
-            List<Location> pending = instance.getPendingMobSpawns();
-            List<String> mobIds = instance.getMobIds();
-
-            if (pending.isEmpty() || mobIds.isEmpty())
-                continue;
-
-            // インスタンス内のプレイヤーを取得
-            Set<UUID> playerUuids = instance.getPlayers();
-            List<Player> activePlayers = new ArrayList<>();
-            for (UUID uuid : playerUuids) {
-                Player p = Bukkit.getPlayer(uuid);
-                if (p != null && p.isOnline()) {
-                    activePlayers.add(p);
-                }
-            }
-
-            if (activePlayers.isEmpty())
-                continue;
-
-            // 近接チェック（距離8ブロック以内）
-            List<Location> toSpawn = new ArrayList<>();
-            for (Location spawnLoc : pending) {
-                for (Player p : activePlayers) {
-                    if (p.getLocation().distanceSquared(spawnLoc) <= 8 * 8) {
-                        toSpawn.add(spawnLoc);
-                        break; // この地点はスポーン対象
-                    }
-                }
-            }
-
-            // スポーン実行
-            if (!toSpawn.isEmpty()) {
-                MobSpawnManager mobManager = plugin.getMobSpawnManager();
-                if (mobManager != null) {
-                    for (Location loc : toSpawn) {
-                        String mobId = mobIds.get(new Random().nextInt(mobIds.size()));
-                        mobManager.spawnDungeonMob(loc, mobId, 1);
-                        pending.remove(loc); // スポーン済みリストから削除
-                    }
-                }
-            }
-        }
     }
 
     private void deleteDirectory(File file) throws IOException {
