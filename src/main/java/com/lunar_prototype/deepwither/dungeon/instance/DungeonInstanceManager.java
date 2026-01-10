@@ -81,12 +81,13 @@ public class DungeonInstanceManager implements IManager {
         // Gamerule設定
         world.setGameRule(GameRule.DO_MOB_SPAWNING, false); // ダンジョン独自のスポーンを使うならFalse
         world.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
+        world.setGameRule(GameRule.KEEP_INVENTORY, true); // ★ Keep Inventory Enabled
         world.setTime(18000); // Midnight
 
         // ダンジョン生成実行
         DungeonGenerator generator = new DungeonGenerator(dungeonType);
         // 生成設定: depth 10, startRotation 0 (仮)
-        generator.generateBranching(world, 10, 0);
+        generator.generateBranching(world,0);
 
         // インスタンス管理に追加
         DungeonInstance dInstance = new DungeonInstance(worldName, world);
@@ -119,7 +120,11 @@ public class DungeonInstanceManager implements IManager {
         dInstance.addPlayer(player.getUniqueId());
         playerInstanceMap.put(player.getUniqueId(), instanceId);
 
-        player.sendMessage(ChatColor.GREEN + "ダンジョンに参加しました！");
+        // Join Message & Title
+        player.sendMessage(ChatColor.GREEN + ">> ダンジョンインスタンスに侵入しました。");
+        player.sendMessage(ChatColor.GREEN + ">> 脱出するには " + ChatColor.YELLOW + "/dw dungeon leave" + ChatColor.GREEN
+                + " と入力してください。");
+        player.sendTitle(ChatColor.RED + "Dungeon Started", ChatColor.GRAY + "", 10, 70, 20);
     }
 
     /**

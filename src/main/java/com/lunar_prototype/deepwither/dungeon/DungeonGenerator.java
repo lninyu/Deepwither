@@ -41,6 +41,8 @@ public class DungeonGenerator {
     private final List<PendingSpawner> pendingSpawners = new ArrayList<>();
     private boolean isMonitoring = false;
 
+    private int maxDepth = 10;
+
     private static class PendingSpawner {
         private final Location location;
         private final String mobId;
@@ -132,6 +134,8 @@ public class DungeonGenerator {
         this.dungeonMobList.clear();
         this.dungeonMobList.addAll(mobs);
 
+        this.maxDepth = config.getInt("max_depth", 10);
+
         List<Map<?, ?>> maps = config.getMapList("parts");
 
         for (Map<?, ?> rawMap : maps) {
@@ -168,6 +172,14 @@ public class DungeonGenerator {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    /**
+     * 新しい分岐生成メソッド (再帰的)
+     * Configから読み込んだ maxDepth を使用
+     */
+    public void generateBranching(World world, int startRotation) {
+        generateBranching(world, this.maxDepth, startRotation);
     }
 
     /**
