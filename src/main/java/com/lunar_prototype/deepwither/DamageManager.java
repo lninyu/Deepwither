@@ -357,7 +357,7 @@ public class DamageManager implements Listener {
             // --- 視覚エフェクト: 重層的なパーティクル ---
 
             // 1. 強烈な閃光 (中心)
-            world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0);
+            //world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0);
 
             // 2. 衝撃波 (周囲に広がる空気の歪み)
             world.spawnParticle(Particle.SONIC_BOOM, hitLoc, 1, 0, 0, 0, 0);
@@ -520,36 +520,38 @@ public class DamageManager implements Listener {
     private double handleMobDamageLogic(LivingEntity attacker, double damage, Player target) {
         if (rollChance(20)) {
             damage *= 1.5;
-            sendLog(target,PlayerSettingsManager.SettingType.SHOW_TAKEN_DAMAGE,"§4§l敵のクリティカル！");
+            sendLog(target, PlayerSettingsManager.SettingType.SHOW_TAKEN_DAMAGE, "§4§l敵のクリティカル！");
 
-            Location hitLoc = target.getLocation().add(0, 1.2, 0); // ターゲットの胸の高さ
+            Location hitLoc = target.getLocation().add(0, 1.2, 0);
             World world = hitLoc.getWorld();
 
-            // --- 視覚エフェクト: 重層的なパーティクル ---
+            // --- 視覚エフェクト: エラーの起きにくい構成 ---
 
-            // 1. 強烈な閃光 (中心)
-            world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0);
+            // 1. 強烈な閃光
+            //world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0);
 
-            // 2. 衝撃波 (周囲に広がる空気の歪み)
+            // 2. 衝撃波
             world.spawnParticle(Particle.SONIC_BOOM, hitLoc, 1, 0, 0, 0, 0);
 
-            // 3. 飛び散る火花と血しぶきのような演出 (LAVAとCRIT)
+            // 3. 演出（LAVAとCRITはColorデータ不要なので安全）
             world.spawnParticle(Particle.LAVA, hitLoc, 8, 0.4, 0.4, 0.4, 0.1);
             world.spawnParticle(Particle.CRIT, hitLoc, 30, 0.5, 0.5, 0.5, 0.5);
+            // java.lang.IllegalArgumentException を防ぐための正しい記述例:
+        /*
+        org.bukkit.Particle.DustOptions blood = new org.bukkit.Particle.DustOptions(org.bukkit.Color.RED, 1.5F);
+        world.spawnParticle(Particle.DUST, hitLoc, 20, 0.2, 0.2, 0.2, blood);
+        */
+            // 4. ダメージの重みを出す追加エフェクト (BLOCK_MARKER等を使う場合は注意が必要)
+            // もし色付きの「血」を出したい場合は、以下のように記述する必要があります
 
-            // 4. 大きな煙の広がり
+
+            // 5. 煙
             world.spawnParticle(Particle.LARGE_SMOKE, hitLoc, 15, 0.2, 0.2, 0.2, 0.05);
 
-            // --- 音響エフェクト: 複数の音を重ねて重厚感を出す ---
-
-            // 通常のクリティカル音（高ピッチ）
+            // --- 音響エフェクト ---
             world.playSound(hitLoc, Sound.ENTITY_PLAYER_ATTACK_CRIT, 1.2f, 0.8f);
-
-            // 鈍い衝撃音（低ピッチの金床や爆発）
             world.playSound(hitLoc, Sound.BLOCK_ANVIL_LAND, 0.6f, 0.5f);
             world.playSound(hitLoc, Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 0.8f, 0.6f);
-
-            // 斬撃の重み（鋭い音）
             world.playSound(hitLoc, Sound.ITEM_TRIDENT_HIT, 1.0f, 0.7f);
         }
         return damage;

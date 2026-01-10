@@ -7,6 +7,8 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mob;
 import org.bukkit.util.Vector;
 
+import java.util.List;
+
 public class Actuator {
 
     public void execute(ActiveMob activeMob, BanditDecision decision, Location coverLoc) {
@@ -28,16 +30,48 @@ public class Actuator {
     }
 
     private void handleMovement(Mob entity, BanditDecision.MovementPlan move, Location coverLoc) {
+        if (entity.getVelocity().length() > 0.5 && entity.getVelocity().length() < 0.01) {
+            // 強制的にジャンプさせてスタック解除を試みる
+            entity.setVelocity(entity.getVelocity().setY(0.4));
+        }
+
         if (move.strategy != null) {
-            // --- 追加: 物理的なステップ（回避）処理 ---
+            // --- 既存の回避ロジック ---
             if (move.strategy.equals("BACKSTEP") || move.strategy.equals("SIDESTEP")) {
                 performEvasiveStep(entity, move.strategy);
-                return; // 物理移動をした場合はPathfinderを上書きするためリターン
+                return;
             }
 
-            // --- 【追加】ジグザグ突撃ロジック ---
+            // --- V2: 自己同期・踏み込み (CHARGE) ---
+            if (move.strategy.equals("CHARGE")) {
+                performDirectCharge(entity); // 揺れのない最短距離での突進
+                return;
+            }
+
+            if  (move.strategy.equals("BURST_DASH")) {
+                performBurstDash(entity,1.4); // 揺れのない最短距離での突進
+                return;
+            }
+
+            if  (move.strategy.equals("ORBITAL_SLIDE")) {
+                performOrbitalSlide(entity); // 揺れのない最短距離での突進
+                return;
+            }
+
+            // --- V2: 攻撃後離脱 (POST_ATTACK_EVADE) ---
+            if (move.strategy.equals("POST_ATTACK_EVADE")) {
+                performPostAttackEvade(entity);
+                return;
+            }
+
+            // --- 既存のジグザグ ---
             if (move.strategy.equals("SPRINT_ZIGZAG")) {
                 performSprintZigzag(entity);
+                return;
+            }
+
+            if (move.strategy.equals("ESCAPE_SQUEEZE")) {
+                performEscapeSqueeze(entity,new SensorProvider().scanEnemies(entity,entity.getNearbyEntities(32, 32, 32)));
                 return;
             }
         }
@@ -64,6 +98,127 @@ public class Actuator {
                 entity.getPathfinder().stopPathfinding();
                 break;
         }
+    }
+
+    /**
+     * 敵に囲まれた際、最も敵が薄い方向、または味方がいる方向へ抜ける
+     */
+    private void performEscapeSqueeze(Mob entity, List<BanditContext.EnemyInfo> enemies) {
+        Vector escapeVec = new Vector(0, 0, 0);
+        for (BanditContext.EnemyInfo enemy : enemies) {
+            // 敵から遠ざかるベクトルの合計
+            Vector diff = entity.getLocation().toVector().subtract(enemy.playerInstance.getLocation().toVector());
+            escapeVec.add(diff.normalize().multiply(1.0 / enemy.dist)); // 近い敵ほど強く反発
+        }
+
+        // 地形チェックをしつつ加速
+        if (!isPathBlocked(entity, escapeVec.normalize())) {
+            entity.setVelocity(escapeVec.normalize().multiply(1.2).setY(0.1));
+        } else {
+            entity.getPathfinder().moveTo(entity.getLocation().add(escapeVec.multiply(3)), 2.0);
+        }
+    }
+
+    /**
+     * 進行方向に壁があるか、または足場がないかをチェックする
+     */
+    private boolean isPathBlocked(Mob entity, Vector direction) {
+        Location eyeLoc = entity.getEyeLocation();
+        // 進行方向 1.5m 先をチェック
+        Location targetCheck = eyeLoc.clone().add(direction.clone().multiply(1.5));
+
+        // 1. 壁判定（目の高さが空気でないならブロックがある）
+        if (!targetCheck.getBlock().getType().isAir()) return true;
+
+        // 2. 崖判定（足元が深すぎるなら止まる）
+        Location floorCheck = targetCheck.clone().subtract(0, 2, 0);
+        if (floorCheck.getBlock().getType().isAir()) return true;
+
+        return false;
+    }
+
+    /**
+     * 瞬間的なベクトル加速
+     */
+    private void performBurstDash(Mob entity, double power) {
+        if (entity.getTarget() == null) return;
+
+        Vector dir = entity.getTarget().getLocation().toVector()
+                .subtract(entity.getLocation().toVector()).normalize();
+
+        // 障害物チェック
+        if (isPathBlocked(entity, dir)) {
+            // 壁があるなら、ダッシュではなくPathfinderによる「回り込み」に切り替え
+            entity.getPathfinder().moveTo(entity.getTarget().getLocation(), 2.0);
+            return;
+        }
+
+        // Y軸成分を動的に調整：少し上向きに飛ばすことで、ハーフブロックや階段で止まりにくくする
+        double upwardBias = entity.getLocation().add(dir).getBlock().getType().isSolid() ? 0.4 : 0.15;
+        entity.setVelocity(dir.multiply(power).setY(upwardBias));
+
+        entity.getWorld().spawnParticle(org.bukkit.Particle.CLOUD, entity.getLocation(), 10, 0.2, 0.1, 0.2, 0.05);
+    }
+
+    /**
+     * 最短距離で一気に間合いを詰める。
+     * スキルや近接攻撃のリーチに入れるための、遊びのない突撃。
+     */
+    private void performDirectCharge(Mob entity) {
+        if (entity.getTarget() == null) return;
+
+        // ターゲットの足元ではなく、少し先を目的地にすることで慣性を乗せる
+        Location targetLoc = entity.getTarget().getLocation();
+        Vector direction = targetLoc.toVector().subtract(entity.getLocation().toVector()).normalize();
+        Location destination = targetLoc.clone().add(direction.multiply(1.5));
+
+        entity.getPathfinder().moveTo(destination, 2.5); // 最高速度
+    }
+
+    /**
+     * 敵の視線を外しつつ回り込むスライディング
+     */
+    private void performOrbitalSlide(Mob entity) {
+        if (entity.getTarget() == null) return;
+
+        Location self = entity.getLocation();
+        Vector toTarget = entity.getTarget().getLocation().toVector().subtract(self.toVector()).normalize();
+
+        Vector side = new Vector(-toTarget.getZ(), 0, toTarget.getX()).normalize();
+        if (entity.getTicksLived() % 40 < 20) side.multiply(-1);
+
+        Vector finalVel = toTarget.multiply(0.6).add(side.multiply(1.2));
+
+        // 進行方向がブロックなら、サイドベクトルの反転を試みる
+        if (isPathBlocked(entity, finalVel.clone().normalize())) {
+            finalVel = toTarget.multiply(0.6).add(side.multiply(-1.2)); // 逆方向にスライド
+        }
+
+        entity.setVelocity(finalVel.setY(0.1));
+    }
+
+    /**
+     * 攻撃直後のヒットアンドアウェイ挙動。
+     * 斜め後ろに下がりながら、敵の反撃ラインから外れる。
+     */
+    private void performPostAttackEvade(Mob entity) {
+        if (entity.getTarget() == null) return;
+
+        Location selfLoc = entity.getLocation();
+        Location targetLoc = entity.getTarget().getLocation();
+
+        // 敵から離れるベクトル
+        Vector awayVec = selfLoc.toVector().subtract(targetLoc.toVector()).normalize();
+
+        // 単純に下がるのではなく、左右どちらかにランダムに逸れる
+        // entityのUUID等をシードにして、個体ごとに避ける方向を固定するとより自然
+        Vector sideVec = new Vector(-awayVec.getZ(), 0, awayVec.getX()).normalize();
+        if (entity.getUniqueId().getMostSignificantBits() % 2 == 0) sideVec.multiply(-1);
+
+        // 斜め後ろ 4m 地点
+        Location destination = selfLoc.clone().add(awayVec.multiply(3.0)).add(sideVec.multiply(2.0));
+
+        entity.getPathfinder().moveTo(destination, 1.8);
     }
 
     /**
