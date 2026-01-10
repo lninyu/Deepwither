@@ -159,12 +159,22 @@ public class DungeonPart {
         if (normalizedAngle < 0)
             normalizedAngle += 360;
 
-        // WorldEdit AffineTransform.rotateY is Counter-Clockwise.
-        // Minecraft Yaw is Clockwise.
-        // rotateY(-angle) converts CW to CCW.
+        if (normalizedAngle == 0)
+            return vec;
+
+        // WorldEdit AffineTransform.rotateY is Counter-Clockwise (CCW).
+        // Minecraft Yaw is Clockwise (CW).
+        // To rotate a vector CW by 'angle', we pass CCW '-angle' to rotateY.
         AffineTransform transform = new AffineTransform().rotateY(-normalizedAngle);
+
+        // Use apply to get a NEW vector, and use precise floor/round
         var v3 = transform.apply(vec.toVector3());
-        return BlockVector3.at(Math.round(v3.getX()), Math.round(v3.getY()), Math.round(v3.getZ()));
+
+        // Using Math.round for block coordinates
+        return BlockVector3.at(
+                Math.toIntExact(Math.round(v3.getX())),
+                Math.toIntExact(Math.round(v3.getY())),
+                Math.toIntExact(Math.round(v3.getZ())));
     }
 
     public BlockVector3 getOriginRelToEntry() {

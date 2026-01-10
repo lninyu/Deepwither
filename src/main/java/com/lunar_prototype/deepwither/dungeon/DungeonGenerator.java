@@ -383,12 +383,18 @@ public class DungeonGenerator {
 
         try (ClipboardReader reader = format.getReader(new FileInputStream(schemFile))) {
             Clipboard clipboard = reader.read();
+            Deepwither.getInstance().getLogger().info(String.format(
+                    "[Paste] CLIPBOARD ORIGIN: %s | PART RECORDED ORIGIN_REL_ENTRY: %s",
+                    clipboard.getOrigin(), part.getOriginRelToEntry()));
             try (EditSession editSession = WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(world))) {
                 ClipboardHolder holder = new ClipboardHolder(clipboard);
                 // WorldEdit rotateY is CCW. rotation is CW.
                 holder.setTransform(new AffineTransform().rotateY(-rotation));
 
                 BlockVector3 rotatedOriginOffset = part.getRotatedOriginOffset(rotation);
+                // WorldEdit pastes the CLIPBOARD ORIGIN to the target location.
+                // Our rotatedOriginOffset is (Origin - Entry) rotated.
+                // So (EntryWorldPos + rotatedOriginOffset) correctly places the rotated Origin.
                 BlockVector3 pastePos = entryPos.add(rotatedOriginOffset);
 
                 Deepwither.getInstance().getLogger().info(String.format(
