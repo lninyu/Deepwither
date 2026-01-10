@@ -49,7 +49,7 @@ public class SeekerAIEngine {
         // 4. ログ出力
         String uuidShort = uuid.toString().substring(0, 4);
         System.out.println(String.format("[%s-%s][%s] Action: %s | %s",
-                activeMob.getType().getInternalName(), uuidShort, version, decision.decision.action_type, decision.reasoning));
+                activeMob.getType().getInternalName(), uuidShort, decision.engine_version, decision.decision.action_type, decision.reasoning));
 
         // 5. 行動実行
         if (!bukkitMob.isDead()) {
