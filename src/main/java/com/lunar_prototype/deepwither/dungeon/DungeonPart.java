@@ -75,39 +75,38 @@ public class DungeonPart {
         this.entryY = entryPosRelToOrigin.getY();
         this.entryZ = entryPosRelToOrigin.getZ();
 
-        // 2. Second pass: Collect everything else, making them relative to ENTRY
+        // 2. Second pass: Collect everything else, making them relative to ORIGIN
         for (BlockVector3 pos : clipboard.getRegion()) {
             var block = clipboard.getFullBlock(pos);
             // Ensure we create a NEW vector object, especially if FAWE reuses 'pos'
             BlockVector3 currentPos = BlockVector3.at(pos.getX(), pos.getY(), pos.getZ());
             BlockVector3 posRelToOrigin = currentPos.subtract(origin);
-            BlockVector3 posRelToEntry = posRelToOrigin.subtract(entryPosRelToOrigin);
 
             // Exit (Iron Block)
             if (block.getBlockType().equals(BlockTypes.IRON_BLOCK)) {
-                // Force Flat Y relative to Entry for exits
-                BlockVector3 exitVec = BlockVector3.at(posRelToEntry.getX(), 0, posRelToEntry.getZ());
+                // Force Flat Y relative to Origin for exits
+                BlockVector3 exitVec = BlockVector3.at(posRelToOrigin.getX(), 0, posRelToOrigin.getZ());
                 this.exitOffsets.add(exitVec);
                 Deepwither.getInstance().getLogger()
-                        .info(String.format("[%s] Found EXIT at %s (Rel to Entry)", fileName, exitVec));
+                        .info(String.format("[%s] Found EXIT at %s (Rel to Origin)", fileName, exitVec));
             }
             // Mob Marker (Redstone)
             else if (block.getBlockType().equals(BlockTypes.REDSTONE_BLOCK)) {
-                this.mobMarkers.add(BlockVector3.at(posRelToEntry.getX(), posRelToEntry.getY(), posRelToEntry.getZ()));
+                this.mobMarkers.add(posRelToOrigin);
                 Deepwither.getInstance().getLogger()
-                        .info(String.format("[%s] Found MOB at %s (Rel to Entry)", fileName, posRelToEntry));
+                        .info(String.format("[%s] Found MOB at %s (Rel to Origin)", fileName, posRelToOrigin));
             }
             // Loot Marker (Emerald)
             else if (block.getBlockType().equals(BlockTypes.EMERALD_BLOCK)) {
-                this.lootMarkers.add(BlockVector3.at(posRelToEntry.getX(), posRelToEntry.getY(), posRelToEntry.getZ()));
+                this.lootMarkers.add(posRelToOrigin);
                 Deepwither.getInstance().getLogger()
-                        .info(String.format("[%s] Found LOOT at %s (Rel to Entry)", fileName, posRelToEntry));
+                        .info(String.format("[%s] Found LOOT at %s (Rel to Origin)", fileName, posRelToOrigin));
             }
         }
 
-        // 3. Normalize Bounding Box relative to Entry
-        this.minPoint = clipboard.getRegion().getMinimumPoint().subtract(origin).subtract(entryPosRelToOrigin);
-        this.maxPoint = clipboard.getRegion().getMaximumPoint().subtract(origin).subtract(entryPosRelToOrigin);
+        // 3. Normalize Bounding Box relative to Schematic Origin
+        this.minPoint = clipboard.getRegion().getMinimumPoint().subtract(origin);
+        this.maxPoint = clipboard.getRegion().getMaximumPoint().subtract(origin);
 
         Deepwither.getInstance().getLogger().info(String.format(
                 "[%s] Scan Complete: %d exits, %d mob, %d loot. Entry Offset from Origin: %s",

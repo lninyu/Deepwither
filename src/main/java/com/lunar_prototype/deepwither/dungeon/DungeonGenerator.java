@@ -90,15 +90,12 @@ public class DungeonGenerator {
                 maxZ = Math.max(maxZ, v.getZ());
             }
 
-            // Entry offset from schematic origin, rotated
-            BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
-            // World position of the Entry point
-            BlockVector3 worldEntryPos = origin.add(rotatedEntry);
+            // Current origin IS the schematic origin world position
 
-            // min/max are already relative to Entry, so just add worldEntryPos
-            // (DO NOT add rotatedEntry again - it's already accounted for in worldEntryPos)
-            this.minBound = BlockVector3.at(minX, minY, minZ).add(worldEntryPos);
-            this.maxBound = BlockVector3.at(maxX, maxY, maxZ).add(worldEntryPos);
+            // min/max are now relative to Schematic Origin
+            // Add world origin (schematic origin) directly
+            this.minBound = BlockVector3.at(minX, minY, minZ).add(origin);
+            this.maxBound = BlockVector3.at(maxX, maxY, maxZ).add(origin);
         }
 
         private BlockVector3 rotate(int x, int y, int z, int angle) {
@@ -239,13 +236,10 @@ public class DungeonGenerator {
         for (int i = 0; i < rotatedExits.size(); i++) {
             BlockVector3 exitOffsetFromEntry = rotatedExits.get(i);
 
-            // Calculate world position of the ENTRY of the current part
-            BlockVector3 rotatedEntry = currentPart.getRotatedEntryOffset(currentRot);
-            BlockVector3 worldEntryPos = currentOrigin.add(rotatedEntry);
-
-            // Calculate world position of this exit (Connection Point)
-            // Since exitOffsetFromEntry is relative to Entry, add it to worldEntryPos
-            BlockVector3 connectionPoint = worldEntryPos.add(exitOffsetFromEntry);
+            // connectionPoint is where the exit is in the world.
+            // Part is placed at currentOrigin. Exit is at rotatedExitOffset relative to
+            // origin.
+            BlockVector3 connectionPoint = currentOrigin.add(exitOffsetFromEntry);
 
             BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
             int localExitYaw = currentPart.getExitDirection(originalExit);
@@ -306,6 +300,8 @@ public class DungeonGenerator {
                             // Calculate Rotation: Target - Intrinsic = Rot
                             int nextRotation = (exitWorldYaw - nextPart.getIntrinsicYaw() + 360) % 360;
 
+                            // worldEntryPos = connectionPoint.
+                            // origin = worldEntryPos - rotatedEntryOffset
                             BlockVector3 nextEntryRotated = nextPart.getRotatedEntryOffset(nextRotation);
                             BlockVector3 nextOrigin = connectionPoint.subtract(nextEntryRotated);
 
@@ -351,7 +347,6 @@ public class DungeonGenerator {
             Set<BlockVector3> ancestors) {
         List<BlockVector3> rotatedExits = currentPart.getRotatedExitOffsets(currentRot);
         for (int i = 0; i < rotatedExits.size(); i++) {
-            BlockVector3 exitOffset = rotatedExits.get(i);
             BlockVector3 connectionPoint = currentOrigin.add(exitOffset);
 
             BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
