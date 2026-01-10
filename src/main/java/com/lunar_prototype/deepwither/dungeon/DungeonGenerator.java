@@ -90,12 +90,24 @@ public class DungeonGenerator {
         }
 
         private BlockVector3 rotate(int x, int y, int z, int angle) {
+            // Synchronize with DungeonPart.transformVector math
             int normalizedAngle = angle % 360;
             if (normalizedAngle < 0)
                 normalizedAngle += 360;
-            AffineTransform transform = new AffineTransform().rotateY(-normalizedAngle);
-            var v = transform.apply(BlockVector3.at(x, y, z).toVector3());
-            return BlockVector3.at(Math.round(v.getX()), Math.round(v.getY()), Math.round(v.getZ()));
+            if (normalizedAngle == 0)
+                return BlockVector3.at(x, y, z);
+
+            double rad = Math.toRadians(normalizedAngle);
+            double cos = Math.cos(rad);
+            double sin = Math.sin(rad);
+
+            double newX = x * cos - z * sin;
+            double newZ = x * sin + z * cos;
+
+            return BlockVector3.at(
+                    Math.toIntExact(Math.round(newX)),
+                    y,
+                    Math.toIntExact(Math.round(newZ)));
         }
 
         public Region getRegion() {
@@ -429,23 +441,16 @@ public class DungeonGenerator {
         generateBranching(world, hallwayCount, rotation);
     }
 
-    private void removeMarker(World world, BlockVector3 pos, Material expectedType) {
+    private void removeMarker(World world, BlockVector3 pos, Material type) {
         // Schedule for next tick to ensure WorldEdit changes are applied
         Bukkit.getScheduler().runTask(Deepwither.getInstance(), () -> {
-            Location loc = new Location(world, pos.getX(), pos.getY(), pos.getZ());
-            Material currentType = loc.getBlock().getType();
-
-            // At connections, GOLD and IRON often overlap and override each other.
-            // GOLD, IRON, REDSTONE, EMERALD are all markers that should be removed.
-            boolean isMarker = currentType == Material.GOLD_BLOCK || currentType == Material.IRON_BLOCK ||
-                    currentType == Material.REDSTONE_BLOCK || currentType == Material.EMERALD_BLOCK;
-
-            if (isMarker) {
-                loc.getBlock().setType(Material.AIR);
-                Deepwither.getInstance().getLogger().info("Removed marker " + currentType + " at " + pos);
+            org.bukkit.block.Block block = world.getBlockAt(pos.getX(), pos.getY(), pos.getZ());
+            if (block.getType() == type || block.getType() == Material.GOLD_BLOCK
+                    || block.getType() == Material.IRON_BLOCK
+                    || block.getType() == Material.REDSTONE_BLOCK || block.getType() == Material.EMERALD_BLOCK) {
+                block.setType(Material.AIR);
+                // Silently remove to keep log clean now that it's verified
             }
-            // else: silently skip, could be already removed or overridden by a structural
-            // block
         });
     }
 

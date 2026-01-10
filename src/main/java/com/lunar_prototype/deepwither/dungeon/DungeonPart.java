@@ -71,13 +71,13 @@ public class DungeonPart {
         // 2. Second pass: Collect everything else, making them relative to ENTRY
         for (BlockVector3 pos : clipboard.getRegion()) {
             var block = clipboard.getFullBlock(pos);
-            BlockVector3 currentPos = BlockVector3.at(pos.getX(), pos.getY(), pos.getZ());
+            BlockVector3 currentPos = BlockVector3.at(pos.x(), pos.y(), pos.z());
             BlockVector3 posRelToEntry = currentPos.subtract(entryPosLocal);
 
             // Exit (Iron Block)
             if (block.getBlockType().equals(BlockTypes.IRON_BLOCK)) {
                 // Force Flat Y relative to Entry
-                BlockVector3 exitVec = BlockVector3.at(posRelToEntry.getX(), 0, posRelToEntry.getZ());
+                BlockVector3 exitVec = BlockVector3.at(posRelToEntry.x(), 0, posRelToEntry.z());
                 this.exitOffsets.add(exitVec);
                 Deepwither.getInstance().getLogger()
                         .info(String.format("[%s] Found EXIT at %s (Rel to Entry)", fileName, exitVec));
@@ -115,8 +115,8 @@ public class DungeonPart {
 
         // primExit is already relative to Entry (0,0,0)
         BlockVector3 primExit = exitOffsets.get(0);
-        int dx = primExit.getX();
-        int dz = primExit.getZ();
+        int dx = primExit.x();
+        int dz = primExit.z();
 
         if (Math.abs(dx) >= Math.abs(dz)) {
             this.intrinsicYaw = (dx > 0) ? 270 : 90;
@@ -168,8 +168,8 @@ public class DungeonPart {
         double cos = Math.cos(rad);
         double sin = Math.sin(rad);
 
-        double x = vec.getX();
-        double z = vec.getZ();
+        double x = vec.x();
+        double z = vec.z();
 
         // 2D Rotation matrix for Clockwise:
         // x' = x*cos - z*sin
@@ -179,7 +179,7 @@ public class DungeonPart {
 
         BlockVector3 result = BlockVector3.at(
                 Math.toIntExact(Math.round(newX)),
-                vec.getY(),
+                vec.y(),
                 Math.toIntExact(Math.round(newZ)));
 
         // Detailed logging to trace exact transformation
@@ -224,8 +224,8 @@ public class DungeonPart {
 
     public int getExitDirection(BlockVector3 exit) {
         // 'exit' is already relative to Entry (0,0,0).
-        int dx = exit.getX();
-        int dz = exit.getZ();
+        int dx = exit.x();
+        int dz = exit.z();
 
         if (Math.abs(dx) >= Math.abs(dz)) {
             return (dx > 0) ? 270 : 90;
