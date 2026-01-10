@@ -22,6 +22,8 @@ public class DungeonPart {
     // Multiple exits support
     private final List<BlockVector3> exitOffsets = new ArrayList<>();
 
+    private final List<BlockVector3> mobSpawnerOffsets = new ArrayList<>();
+
     // Bounding Box relative to Origin
     private BlockVector3 minPoint;
     private BlockVector3 maxPoint;
@@ -77,6 +79,17 @@ public class DungeonPart {
                         "[%s] Found EXIT(Iron). Pos:%s - Origin:%s = %s (Forced Flat Y=%d)",
                         fileName, pos, origin, exitVec, entryY));
             }
+            // レッドストーンブロック (モブスポナー)
+            if (block.getBlockType().equals(BlockTypes.REDSTONE_BLOCK)) {
+                BlockVector3 spawnerVec = BlockVector3.at(
+                        pos.getX() - origin.getX(),
+                        pos.getY() - origin.getY(),
+                        pos.getZ() - origin.getZ());
+                this.mobSpawnerOffsets.add(spawnerVec);
+
+                Deepwither.getInstance().getLogger().info(String.format(
+                        "[%s] Found MOB_MARKER(Redstone). Pos:%s", fileName, spawnerVec));
+            }
         }
 
         if (!foundEntry) {
@@ -90,6 +103,12 @@ public class DungeonPart {
         }
 
         calculateIntrinsicYaw();
+    }
+
+    public List<BlockVector3> getRotatedMobSpawnerOffsets(int rotation) {
+        return mobSpawnerOffsets.stream()
+                .map(vec -> transformVector(vec, rotation))
+                .collect(Collectors.toList());
     }
 
     private void calculateIntrinsicYaw() {

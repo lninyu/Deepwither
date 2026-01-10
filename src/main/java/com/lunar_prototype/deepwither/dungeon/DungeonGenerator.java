@@ -1,6 +1,7 @@
 package com.lunar_prototype.deepwither.dungeon;
 
 import com.lunar_prototype.deepwither.Deepwither;
+import com.lunar_prototype.deepwither.MobSpawnManager;
 import com.sk89q.worldedit.EditSession;
 import com.sk89q.worldedit.WorldEdit;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
@@ -35,6 +36,22 @@ public class DungeonGenerator {
 
     // Store placed parts for collision detection
     private final List<PlacedPart> placedParts = new ArrayList<>();
+
+    private final List<String> dungeonMobList = new ArrayList<>();
+    private final List<PendingSpawner> pendingSpawners = new ArrayList<>();
+    private boolean isMonitoring = false;
+
+    private static class PendingSpawner {
+        private final Location location;
+        private final String mobId;
+        private final int level;
+
+        public PendingSpawner(Location location, String mobId, int level) {
+            this.location = location;
+            this.mobId = mobId;
+            this.level = level;
+        }
+    }
 
     private static class PlacedPart {
         private final DungeonPart part;
@@ -111,6 +128,10 @@ public class DungeonGenerator {
         }
         YamlConfiguration config = YamlConfiguration.loadConfiguration(configFile);
 
+        List<String> mobs = config.getStringList("mobs");
+        this.dungeonMobList.clear();
+        this.dungeonMobList.addAll(mobs);
+
         List<Map<?, ?>> maps = config.getMapList("parts");
 
         for (Map<?, ?> rawMap : maps) {
@@ -185,7 +206,6 @@ public class DungeonGenerator {
         Deepwither.getInstance().getLogger().info("=== 生成完了: Placed " + placedParts.size() + " parts ===");
     }
 
-    // Recursive Step
     // Recursive Step
     private void generateRecursive(World world, DungeonPart currentPart, BlockVector3 currentOrigin, int currentRot,
             int depth, int maxDepth, int chainLength) {
@@ -373,15 +393,15 @@ public class DungeonGenerator {
             }
         }
 
-        // 3. Paste
+        // 3. Paste and Marker Handling
         File schemFile = new File(dungeonFolder, part.getFileName());
         ClipboardFormat format = ClipboardFormats.findByFile(schemFile);
-        if (format == null)
-            return false;
+        if (format == null) return false;
 
         try (ClipboardReader reader = format.getReader(new FileInputStream(schemFile))) {
             Clipboard clipboard = reader.read();
 
+            // --- ワールドへの貼り付け実行 ---
             try (EditSession editSession = WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(world))) {
                 ClipboardHolder holder = new ClipboardHolder(clipboard);
                 holder.setTransform(new AffineTransform().rotateY(rotation));
@@ -394,7 +414,7 @@ public class DungeonGenerator {
                 Operations.complete(operation);
             }
 
-            // Remove Markers logic...
+            // --- マーカー消去 (入口・出口) ---
             BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
             removeMarker(world, origin.add(rotatedEntry), Material.GOLD_BLOCK);
 
@@ -402,10 +422,30 @@ public class DungeonGenerator {
                 removeMarker(world, origin.add(exit), Material.IRON_BLOCK);
             }
 
+            // --- モブスポーン処理 (レッドストーンブロック) ---
+            if (!dungeonMobList.isEmpty()) {
+                for (BlockVector3 spawnerOffset : part.getRotatedMobSpawnerOffsets(rotation)) {
+                    BlockVector3 spawnPos = origin.add(spawnerOffset);
+                    removeMarker(world, spawnPos, Material.REDSTONE_BLOCK);
+
+                    String mobId = dungeonMobList.get(random.nextInt(dungeonMobList.size()));
+                    Location loc = new Location(world, spawnPos.getX() + 0.5, spawnPos.getY(), spawnPos.getZ() + 0.5);
+
+                    // 即スポーンさせず、リストに追加
+                    pendingSpawners.add(new PendingSpawner(loc, mobId, 1));
+                }
+
+                // 監視タスクが動いていなければ開始
+                startSpawnerMonitor();
+            }
+
+            // 成功としてリストに追加し、メソッドを終了
             placedParts.add(candidate);
             Deepwither.getInstance().getLogger().info("Placed " + part.getType() + " at " + origin);
             return true;
+
         } catch (Exception e) {
+            Deepwither.getInstance().getLogger().severe("Failed to paste part: " + part.getFileName());
             e.printStackTrace();
             return false;
         }
@@ -431,5 +471,41 @@ public class DungeonGenerator {
         if (valid.isEmpty())
             return null;
         return valid.get(random.nextInt(valid.size()));
+    }
+
+    private void startSpawnerMonitor() {
+        if (isMonitoring) return;
+        isMonitoring = true;
+
+        new org.bukkit.scheduler.BukkitRunnable() {
+            @Override
+            public void run() {
+                if (pendingSpawners.isEmpty()) {
+                    this.cancel();
+                    isMonitoring = false;
+                    return;
+                }
+
+                // スポーン済みのものを除去するためのイテレータ
+                java.util.Iterator<PendingSpawner> iterator = pendingSpawners.iterator();
+                while (iterator.hasNext()) {
+                    PendingSpawner spawner = iterator.next();
+
+                    // その地点にプレイヤーが近づいたかチェック (半径12ブロック程度)
+                    boolean playerNearby = spawner.location.getWorld().getNearbyEntities(spawner.location, 12, 12, 12).stream()
+                            .anyMatch(entity -> entity instanceof org.bukkit.entity.Player);
+
+                    if (playerNearby) {
+                        // 実際にモブを召喚
+                        Deepwither.getInstance().getMobSpawnManager().spawnDungeonMob(spawner.location, spawner.mobId, spawner.level);
+
+                        // パーティクルを出すと「現れた感」が出てクオリティが上がります
+                        spawner.location.getWorld().spawnParticle(org.bukkit.Particle.CLOUD, spawner.location, 20, 0.5, 1, 0.5, 0.1);
+
+                        iterator.remove(); // リストから削除（二度と湧かない）
+                    }
+                }
+            }
+        }.runTaskTimer(Deepwither.getInstance(), 20L, 20L); // 1秒ごとにチェック
     }
 }
