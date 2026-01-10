@@ -1,7 +1,6 @@
 package com.lunar_prototype.deepwither.loot;
 
 import com.lunar_prototype.deepwither.Deepwither;
-import com.lunar_prototype.deepwither.ItemFactory; // Custom ItemFactory が必要
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldguard.WorldGuard;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
@@ -33,8 +32,11 @@ public class LootChestManager {
     // Key: WorldGuardの階層名 (例: "t1"), Value: Templateと重みのリスト
     private final Map<Integer, List<WeightedTemplate>> tieredTemplates = new HashMap<>();
 
-    // スポーンしたチェストの追跡 (Locationをキーに、消滅タスクを格納)
+    // Spawened chest tracking (Location -> Expire Task)
     private final Map<Location, BukkitTask> activeLootChests = new ConcurrentHashMap<>();
+
+    // Keep templates accessible for manual placement
+    private final Map<String, LootChestTemplate> templates = new HashMap<>();
 
     // config.ymlからロードする設定値
     private int spawnRadius = 30;
@@ -68,7 +70,7 @@ public class LootChestManager {
         }
         YamlConfiguration lootConfig = YamlConfiguration.loadConfiguration(lootFile);
 
-        Map<String, LootChestTemplate> templates = new HashMap<>();
+        templates.clear();
         for (String templateName : lootConfig.getKeys(false)) {
             ConfigurationSection section = lootConfig.getConfigurationSection(templateName);
             if (section != null) {
@@ -111,7 +113,8 @@ public class LootChestManager {
                 }
             }
         }
-        plugin.getLogger().info("Loaded " + templates.size() + " LootChest templates and " + tieredTemplates.size() + " tier definitions.");
+        plugin.getLogger().info("Loaded " + templates.size() + " LootChest templates and " + tieredTemplates.size()
+                + " tier definitions.");
     }
 
     /**
@@ -141,17 +144,20 @@ public class LootChestManager {
         }
 
         // 2. スポーン総数制限
-        if (activeLootChests.size() >= 500) return;
+        if (activeLootChests.size() >= 500)
+            return;
 
         // ★追加: 密集対策（プレイヤー密度チェック）
         // 半径32ブロック以内に、自分より「名前順で先」のプレイヤーがいる場合はスキップ
         // これにより、密集地帯ではその中の1人だけがスポーン判定を持つことになります
         double checkRadius = 32.0;
         for (Player nearby : player.getWorld().getPlayers()) {
-            if (nearby.equals(player)) continue;
+            if (nearby.equals(player))
+                continue;
 
             // 判定対象のプレイヤーがサバイバル/アドベンチャーであることも考慮
-            if (nearby.getGameMode() != GameMode.SURVIVAL && nearby.getGameMode() != GameMode.ADVENTURE) continue;
+            if (nearby.getGameMode() != GameMode.SURVIVAL && nearby.getGameMode() != GameMode.ADVENTURE)
+                continue;
 
             if (nearby.getLocation().distanceSquared(player.getLocation()) < checkRadius * checkRadius) {
                 // 自分よりUUIDが小さい（または名前順が先）プレイヤーがいれば、自分は処理を譲る
@@ -164,14 +170,17 @@ public class LootChestManager {
 
         // 3. 階層の取得
         int tier = getTierFromLocation(player.getLocation());
-        if (tier == 0) return;
+        if (tier == 0)
+            return;
 
         // ... 以下、既存のテンプレート選択・位置決定ロジック ...
         LootChestTemplate template = selectChestTemplate(tier);
-        if (template == null) return;
+        if (template == null)
+            return;
 
         Location spawnLoc = findSafeSpawnLocation(player.getLocation());
-        if (spawnLoc == null) return;
+        if (spawnLoc == null)
+            return;
 
         // 設置処理
         Bukkit.getScheduler().runTask(plugin, () -> {
@@ -186,6 +195,7 @@ public class LootChestManager {
 
     /**
      * WorldGuardリージョンに基づき、階層を取得します。
+     * 
      * @param loc プレイヤーの位置
      * @return 最大のTier番号 (0はSafeZoneまたはTierなし)
      */
@@ -221,7 +231,8 @@ public class LootChestManager {
                         if (tier > maxTier) {
                             maxTier = tier;
                         }
-                    } catch (NumberFormatException ignored) {}
+                    } catch (NumberFormatException ignored) {
+                    }
                 }
             }
         }
@@ -233,7 +244,8 @@ public class LootChestManager {
      */
     private LootChestTemplate selectChestTemplate(int tier) {
         List<WeightedTemplate> list = tieredTemplates.get(tier);
-        if (list == null || list.isEmpty()) return null;
+        if (list == null || list.isEmpty())
+            return null;
 
         int totalWeight = list.stream().mapToInt(t -> t.weight).sum();
         int roll = random.nextInt(totalWeight);
@@ -252,7 +264,8 @@ public class LootChestManager {
      */
     private Location findSafeSpawnLocation(Location playerLoc) {
         World world = playerLoc.getWorld();
-        if (world == null) return null;
+        if (world == null)
+            return null;
 
         for (int i = 0; i < 10; i++) { // 10回試行
             // プレイヤーの周囲にランダムな位置を選択
@@ -281,12 +294,14 @@ public class LootChestManager {
 
     /**
      * ルートチェストの中身を充填します。（デバッグログ追加版）
+     * 
      * @param chestState 設置されたチェストのState
-     * @param template 使用するテンプレート
+     * @param template   使用するテンプレート
      */
     private void fillChest(Chest chestState, LootChestTemplate template) {
         // 【DEBUG 1】処理開始とテンプレート情報
-        plugin.getLogger().info("[LootChest Debug] Start filling chest at: " + chestState.getLocation().toVector().toString() + " with template: " + template.getName());
+        plugin.getLogger().info("[LootChest Debug] Start filling chest at: "
+                + chestState.getLocation().toVector().toString() + " with template: " + template.getName());
 
         Inventory inv = chestState.getInventory();
         inv.clear();
@@ -297,7 +312,8 @@ public class LootChestManager {
         int itemSlots = random.nextInt(max - min + 1) + min;
 
         // 【DEBUG 2】抽選アイテム数
-        plugin.getLogger().info("[LootChest Debug] Desired item slots: " + itemSlots + " (Min: " + min + ", Max: " + max + ")");
+        plugin.getLogger()
+                .info("[LootChest Debug] Desired item slots: " + itemSlots + " (Min: " + min + ", Max: " + max + ")");
 
         // アイテム抽選
         for (int i = 0; i < itemSlots; i++) {
@@ -306,7 +322,8 @@ public class LootChestManager {
             LootEntry selectedEntry = null;
 
             // 【DEBUG 3】各イテレーションのロール値
-            plugin.getLogger().info("[LootChest Debug] -- Iteration " + (i + 1) + "/" + itemSlots + ". Roll value: " + String.format("%.4f", roll) + " (Total Chance: " + String.format("%.4f", totalChance) + ")");
+            plugin.getLogger().info("[LootChest Debug] -- Iteration " + (i + 1) + "/" + itemSlots + ". Roll value: "
+                    + String.format("%.4f", roll) + " (Total Chance: " + String.format("%.4f", totalChance) + ")");
 
             double currentRoll = roll; // ロール値を一時変数にコピーして減算に使用
             for (LootEntry entry : template.getEntries()) {
@@ -314,7 +331,8 @@ public class LootChestManager {
                 if (currentRoll <= 0) {
                     selectedEntry = entry;
                     // 【DEBUG 4】選ばれたエントリー
-                    plugin.getLogger().info("[LootChest Debug]   -> Selected Entry: " + selectedEntry.getItemId() + " (Chance: " + String.format("%.4f", entry.getChance()) + ")");
+                    plugin.getLogger().info("[LootChest Debug]   -> Selected Entry: " + selectedEntry.getItemId()
+                            + " (Chance: " + String.format("%.4f", entry.getChance()) + ")");
                     break;
                 }
             }
@@ -326,7 +344,8 @@ public class LootChestManager {
 
                 if (item != null) {
                     // 【DEBUG 5】作成されたアイテム情報
-                    plugin.getLogger().info("[LootChest Debug]   -> Item created: " + item.getType().name() + " x" + item.getAmount());
+                    plugin.getLogger().info(
+                            "[LootChest Debug]   -> Item created: " + item.getType().name() + " x" + item.getAmount());
 
                     // 空きスロットにランダムに追加
                     int slot = random.nextInt(inv.getSize());
@@ -336,23 +355,27 @@ public class LootChestManager {
                         plugin.getLogger().info("[LootChest Debug]   -> Item successfully placed in slot: " + slot);
                     } else {
                         // 【DEBUG 7】スロット占有によるスキップ
-                        plugin.getLogger().warning("[LootChest Debug]   -> Failed to place item. Slot " + slot + " was already occupied.");
+                        plugin.getLogger().warning(
+                                "[LootChest Debug]   -> Failed to place item. Slot " + slot + " was already occupied.");
                         // 実際には空きスロットを探すロジックが必要
                     }
                 } else {
                     // 【DEBUG 8】アイテム作成失敗
-                    plugin.getLogger().warning("[LootChest Debug]   -> Item creation failed for entry: " + selectedEntry.getItemId() + ". Check ItemFactory or Material name in lootchest.yml.");
+                    plugin.getLogger().warning("[LootChest Debug]   -> Item creation failed for entry: "
+                            + selectedEntry.getItemId() + ". Check ItemFactory or Material name in lootchest.yml.");
                 }
             } else {
                 // 【DEBUG 9】抽選失敗
-                plugin.getLogger().warning("[LootChest Debug]   -> No item entry selected. This means either TotalChance is 0, or roll was too high, or all chances were 0.");
+                plugin.getLogger().warning(
+                        "[LootChest Debug]   -> No item entry selected. This means either TotalChance is 0, or roll was too high, or all chances were 0.");
             }
         }
 
         // 最低一個保証のロジック (一つもアイテムが入らなかった場合)
         if (inv.isEmpty() && !template.getEntries().isEmpty()) {
             // 【DEBUG 10】最低保証ロジック発動
-            plugin.getLogger().warning("[LootChest Debug] Primary looting failed (Inventory is empty). Triggering minimum item guarantee.");
+            plugin.getLogger().warning(
+                    "[LootChest Debug] Primary looting failed (Inventory is empty). Triggering minimum item guarantee.");
 
             // 最も確率の高いアイテムを強制的に一つ入れるなど
             LootEntry fallback = template.getEntries().get(random.nextInt(template.getEntries().size()));
@@ -362,14 +385,17 @@ public class LootChestManager {
                 int slot = random.nextInt(inv.getSize());
                 inv.setItem(slot, item);
                 // 【DEBUG 11】最低保証アイテム配置成功
-                plugin.getLogger().info("[LootChest Debug] Fallback item placed: " + item.getType().name() + " x" + item.getAmount() + " in slot: " + slot);
+                plugin.getLogger().info("[LootChest Debug] Fallback item placed: " + item.getType().name() + " x"
+                        + item.getAmount() + " in slot: " + slot);
             } else {
                 // 【DEBUG 12】最低保証アイテム作成失敗
-                plugin.getLogger().severe("[LootChest Debug] Fallback item creation failed! Loot chest remains empty. Check fallback entry configuration.");
+                plugin.getLogger().severe(
+                        "[LootChest Debug] Fallback item creation failed! Loot chest remains empty. Check fallback entry configuration.");
             }
         } else {
             // 【DEBUG 13】最終チェック
-            plugin.getLogger().info("[LootChest Debug] Final check: Inventory is NOT empty or template entries are empty. Completion successful.");
+            plugin.getLogger().info(
+                    "[LootChest Debug] Final check: Inventory is NOT empty or template entries are empty. Completion successful.");
         }
     }
 
@@ -381,7 +407,8 @@ public class LootChestManager {
 
         // PDCでカスタムチェストであることをマーク (リスナーで使用)
         // NamespacedKey key = new NamespacedKey(plugin, "LOOT_CHEST_ID");
-        // chest.getPersistentDataContainer().set(key, PersistentDataType.LONG, System.currentTimeMillis());
+        // chest.getPersistentDataContainer().set(key, PersistentDataType.LONG,
+        // System.currentTimeMillis());
         // chest.update();
 
         // 3分後に実行されるタスク
@@ -419,6 +446,7 @@ public class LootChestManager {
 
     /**
      * 外部からチェストが空になったことを通知し、即座に消滅させるためのメソッド。
+     * 
      * @param loc 消滅させるチェストのLocation
      */
     public void despawnLootChest(Location loc) {
@@ -427,6 +455,7 @@ public class LootChestManager {
 
     /**
      * 追跡しているチェストかどうかをチェックします。
+     * 
      * @param loc 照合するチェストのLocation
      */
     public boolean isActiveLootChest(Location loc) {
@@ -464,5 +493,28 @@ public class LootChestManager {
         // 3. 追跡マップをクリア
         activeLootChests.clear();
         plugin.getLogger().info("All loot chests removed successfully.");
+    }
+
+    /**
+     * ダンジョン用に特定の場所にルートチェストを設置します。
+     * 自動消滅は無効化し、ダンジョンインスタンスと共に消えるようにします。
+     */
+    public void placeDungeonLootChest(Location loc, String templateName) {
+        LootChestTemplate template = templates.get(templateName);
+        if (template == null) {
+            plugin.getLogger().warning("Dungeon Loot Chest Template not found: " + templateName);
+            return;
+        }
+
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            Block block = loc.getBlock();
+            block.setType(Material.CHEST);
+            if (block.getState() instanceof Chest chest) {
+                fillChest(chest, template);
+                // ダンジョンチェストは自動消滅させない (インスタンスごと消えるため)
+                // もしパーティクル等が必要なら registerChest(chest) を呼ぶが、expireTaskはキャンセルする必要がある
+                // ここでは簡易的に何もしない
+            }
+        });
     }
 }

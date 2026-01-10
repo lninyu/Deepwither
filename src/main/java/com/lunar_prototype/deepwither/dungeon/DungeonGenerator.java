@@ -12,7 +12,10 @@ import com.sk89q.worldedit.function.operation.Operation;
 import com.sk89q.worldedit.function.operation.Operations;
 import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.math.transform.AffineTransform;
+import com.sk89q.worldedit.regions.CuboidRegion;
 import com.sk89q.worldedit.session.ClipboardHolder;
+import org.bukkit.Bukkit;
+import com.sk89q.worldedit.regions.Region;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -24,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Collections;
 import java.util.stream.Collectors;
 
 public class DungeonGenerator {
@@ -35,13 +39,25 @@ public class DungeonGenerator {
     // Store placed parts for collision detection
     private final List<PlacedPart> placedParts = new ArrayList<>();
 
+    // Configuration & Spawns
+    private int maxDepth = 10;
+    private final List<String> mobIds = new ArrayList<>();
+    private String lootChestTemplate = null;
+
+    private final List<Location> pendingMobSpawns = new ArrayList<>();
+    private final List<Location> pendingLootSpawns = new ArrayList<>();
+
     private static class PlacedPart {
-        DungeonPart part;
-        BlockVector3 minBound; // World coordinates
-        BlockVector3 maxBound; // World coordinates
+        private final DungeonPart part;
+        private final BlockVector3 origin;
+        private final int rotation;
+        private final BlockVector3 minBound; // World coordinates
+        private final BlockVector3 maxBound; // World coordinates
 
         public PlacedPart(DungeonPart part, BlockVector3 origin, int rotation) {
             this.part = part;
+            this.origin = origin;
+            this.rotation = rotation;
             // Calculate world bounds based on rotation
             BlockVector3 min = part.getMinPoint();
             BlockVector3 max = part.getMaxPoint();
@@ -71,8 +87,10 @@ public class DungeonGenerator {
                 maxZ = Math.max(maxZ, v.getZ());
             }
 
-            this.minBound = BlockVector3.at(minX, minY, minZ).add(origin);
-            this.maxBound = BlockVector3.at(maxX, maxY, maxZ).add(origin);
+            BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
+            BlockVector3 worldEntryPos = origin.add(rotatedEntry);
+            this.minBound = BlockVector3.at(minX, minY, minZ).add(worldEntryPos);
+            this.maxBound = BlockVector3.at(maxX, maxY, maxZ).add(worldEntryPos);
         }
 
         private BlockVector3 rotate(int x, int y, int z, int angle) {
@@ -81,14 +99,9 @@ public class DungeonGenerator {
             return BlockVector3.at(Math.round(v.getX()), Math.round(v.getY()), Math.round(v.getZ()));
         }
 
-        public boolean intersects(PlacedPart other) {
-            // AABB Collision Check with 2 block buffer to allow wall merging
-            // Relaxed from 1 to 2 based on user feedback (too sensitive)
-            return this.minBound.getX() < other.maxBound.getX() - 3 && this.maxBound.getX() > other.minBound.getX() + 3
-                    &&
-                    this.minBound.getY() < other.maxBound.getY() && this.maxBound.getY() > other.minBound.getY() &&
-                    this.minBound.getZ() < other.maxBound.getZ() - 3
-                    && this.maxBound.getZ() > other.minBound.getZ() + 3;
+        public Region getRegion() {
+            return new CuboidRegion(BukkitAdapter.adapt(Deepwither.getInstance().getServer().getWorlds().get(0)),
+                    minBound, maxBound);
         }
     }
 
@@ -105,6 +118,11 @@ public class DungeonGenerator {
             return;
         }
         YamlConfiguration config = YamlConfiguration.loadConfiguration(configFile);
+
+        this.maxDepth = config.getInt("max_depth", 10);
+        this.lootChestTemplate = config.getString("loot_chest");
+        this.mobIds.clear();
+        this.mobIds.addAll(config.getStringList("mobs"));
 
         List<Map<?, ?>> maps = config.getMapList("parts");
 
@@ -146,9 +164,19 @@ public class DungeonGenerator {
 
     /**
      * 新しい分岐生成メソッド (再帰的)
+     * Configから読み込んだ maxDepth を使用
+     */
+    public void generateBranching(World world, int startRotation) {
+        generateBranching(world, this.maxDepth, startRotation);
+    }
+
+    /**
+     * 新しい分岐生成メソッド (再帰的)
      */
     public void generateBranching(World world, int maxDepth, int startRotation) {
         placedParts.clear();
+        pendingMobSpawns.clear();
+        pendingLootSpawns.clear();
         Deepwither.getInstance().getLogger().info("=== 生成開始: Branching Dungeon (MaxDepth:" + maxDepth + ") ===");
 
         // 基準点
@@ -172,80 +200,180 @@ public class DungeonGenerator {
         // For 'straight' gen compat:
         int finalStartRotation = startRotation + 180;
 
-        if (pastePart(world, startOrigin, startPart, finalStartRotation)) {
+        if (pastePart(world, startOrigin, startPart, finalStartRotation, null)) {
             // Recurse
-            generateRecursive(world, startPart, startOrigin, finalStartRotation, 1, maxDepth);
+            generateRecursive(world, startPart, startOrigin, finalStartRotation, 1, maxDepth, 0);
         }
 
         Deepwither.getInstance().getLogger().info("=== 生成完了: Placed " + placedParts.size() + " parts ===");
     }
 
     // Recursive Step
+    // Recursive Step
     private void generateRecursive(World world, DungeonPart currentPart, BlockVector3 currentOrigin, int currentRot,
-            int depth, int maxDepth) {
-        if (depth >= maxDepth)
+            int depth, int maxDepth, int chainLength) {
+        // Check depth limit
+        if (depth >= maxDepth) {
+            // Cap all exits since we reached max depth
+            capExits(world, currentPart, currentOrigin, currentRot);
             return;
+        }
 
         List<BlockVector3> rotatedExits = currentPart.getRotatedExitOffsets(currentRot);
 
         // Process each exit (random shuffle for variety?)
+        // Process each exit
         for (int i = 0; i < rotatedExits.size(); i++) {
-            BlockVector3 exitOffset = rotatedExits.get(i);
+            BlockVector3 exitOffsetFromEntry = rotatedExits.get(i);
+
+            // Calculate world position of the ENTRY of the current part
+            BlockVector3 rotatedEntry = currentPart.getRotatedEntryOffset(currentRot);
+            BlockVector3 worldEntryPos = currentOrigin.add(rotatedEntry);
 
             // Calculate world position of this exit (Connection Point)
-            BlockVector3 connectionPoint = currentOrigin.add(exitOffset);
-
-            // 1. Determine World Direction of this Exit
-            // Using Bounding Box Face detection (Rotated)
-            // First get the local direction (0=South, 90=West, etc.)
-            // We need the Original Exit Vector (unrotated) to check against local bounds
+            // Since exitOffsetFromEntry is relative to Entry, add it to worldEntryPos
+            BlockVector3 connectionPoint = worldEntryPos.add(exitOffsetFromEntry);
 
             BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
             int localExitYaw = currentPart.getExitDirection(originalExit);
 
-            // Apply current rotation to the local yaw
+            // Apply current rotation (Clockwise: Local + Rot)
             int exitWorldYaw = (localExitYaw + currentRot) % 360;
 
-            // int exitWorldYaw = getVectorYaw(exitOffset.getX(), exitOffset.getZ()); // OLD
-            // BUGGY WAY
+            // Force extend if it's the only exit (to prevent premature dead-ends)
+            boolean forceExtend = rotatedExits.size() == 1;
+            double chance = forceExtend ? 1.0 : 0.8;
 
-            // Try to place a part
-            if (random.nextDouble() < 0.8) {
-                // Select random Hallway or Room
-                // String type = (random.nextDouble() > 0.7) ? "ROOM" : "HALLWAY";
-                // Only try to place Hallways first to keep it simple? No, mixed.
-                String type = (random.nextDouble() > 0.5) ? "ROOM" : "HALLWAY";
+            boolean placedInfo = false;
 
-                List<DungeonPart> candidates = partList.stream()
-                        .filter(p -> p.getType().equals(type))
-                        .collect(Collectors.toList());
+            if (random.nextDouble() < chance) {
+                // Determine Types to Try based on Chain Length
+                List<String> typesToTry = new ArrayList<>();
 
-                if (candidates.isEmpty()) {
-                    continue;
+                // Chain Logic:
+                // Length < 3: Priority HALLWAY (Extend)
+                // Length >= 5: Priority ROOM (Branch)
+                // Middle: Mixed
+
+                if (chainLength < 3) {
+                    typesToTry.add("HALLWAY");
+                    if (random.nextDouble() > 0.8)
+                        typesToTry.add("ROOM"); // Low chance for room early
+                } else if (chainLength >= 5) {
+                    typesToTry.add("ROOM");
+                    typesToTry.add("HALLWAY"); // Fallback
+                } else {
+                    // 50/50
+                    if (random.nextDouble() > 0.5) {
+                        typesToTry.add("ROOM");
+                        typesToTry.add("HALLWAY");
+                    } else {
+                        typesToTry.add("HALLWAY");
+                        typesToTry.add("ROOM");
+                    }
                 }
 
-                DungeonPart nextPart = candidates.get(random.nextInt(candidates.size()));
+                for (String type : typesToTry) {
+                    List<DungeonPart> candidates = partList.stream()
+                            .filter(p -> p.getType().equals(type))
+                            .collect(Collectors.toList());
 
-                // 2. Calculate Required Rotation
-                // We want NextPart.IntrinsicYaw to align with exitWorldYaw.
-                // WE Rotation is additive?
-                // RotatedVec = Rot(IntrinsicVec).
-                // We want Rot(Intrinsic) = Target(ExitWorld).
-                // So Rot = Target - Intrinsic.
+                    if (candidates.isEmpty())
+                        continue;
 
-                int nextRotation = (exitWorldYaw - nextPart.getIntrinsicYaw() + 360) % 360;
+                    Collections.shuffle(candidates);
 
-                // Calculate Origin for Next Part
-                BlockVector3 nextEntryRotated = nextPart.getRotatedEntryOffset(nextRotation);
+                    for (DungeonPart nextPart : candidates) {
+                        try {
+                            // Calculate Rotation: Target - Intrinsic = Rot
+                            int nextRotation = (exitWorldYaw - nextPart.getIntrinsicYaw() + 360) % 360;
+
+                            BlockVector3 nextEntryRotated = nextPart.getRotatedEntryOffset(nextRotation);
+                            BlockVector3 nextOrigin = connectionPoint.subtract(nextEntryRotated);
+
+                            Deepwither.getInstance().getLogger().info(String.format(
+                                    "Trying [%s](%s) at %s Rot:%d | Chain:%d | ExYaw:%d -> TgtYaw:%d",
+                                    nextPart.getFileName(), type, nextOrigin, nextRotation, chainLength, localExitYaw,
+                                    exitWorldYaw));
+
+                            if (pastePart(world, nextOrigin, nextPart, nextRotation, currentOrigin)) {
+                                int newChain = type.equals("HALLWAY") ? chainLength + 1 : 0;
+                                generateRecursive(world, nextPart, nextOrigin, nextRotation, depth + 1, maxDepth,
+                                        newChain);
+                                placedInfo = true;
+                                break; // Break candidate loop
+                            }
+                        } catch (Exception e) {
+                            Deepwither.getInstance().getLogger()
+                                    .warning("Error trying to place part " + nextPart.getFileName());
+                            e.printStackTrace();
+                        }
+                    }
+                    if (placedInfo)
+                        break; // Break type loop if placed
+                }
+            }
+
+            // If failed to place anything (Collision or Change skipped), Cap it.
+            if (!placedInfo) {
+                placeCap(world, connectionPoint, exitWorldYaw, currentOrigin);
+            }
+        }
+    }
+
+    private void capExits(World world, DungeonPart currentPart, BlockVector3 currentOrigin, int currentRot) {
+        List<BlockVector3> rotatedExits = currentPart.getRotatedExitOffsets(currentRot);
+        for (int i = 0; i < rotatedExits.size(); i++) {
+            BlockVector3 exitOffset = rotatedExits.get(i);
+            BlockVector3 connectionPoint = currentOrigin.add(exitOffset);
+
+            BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
+            int localExitYaw = currentPart.getExitDirection(originalExit);
+            int exitWorldYaw = (localExitYaw - currentRot + 360) % 360;
+
+            placeCap(world, connectionPoint, exitWorldYaw, currentOrigin);
+        }
+    }
+
+    private void placeCap(World world, BlockVector3 connectionPoint, int exitWorldYaw, BlockVector3 parentOrigin) {
+        // Try CAP then ENTRANCE (as fallback)
+        List<String> capTypes = new ArrayList<>();
+        capTypes.add("CAP");
+        capTypes.add("ENTRANCE");
+
+        for (String type : capTypes) {
+            List<DungeonPart> candidates = partList.stream()
+                    .filter(p -> p.getType().equals(type))
+                    .collect(Collectors.toList());
+            if (candidates.isEmpty())
+                continue;
+
+            Collections.shuffle(candidates);
+
+            for (DungeonPart capPart : candidates) {
+                // Align Cap Intrinsic Yaw to Exit World Yaw
+                // Default: Match flow direction (Parent Exit -> Child Entry -> Child Exit)
+                int baseRotation = (capPart.getIntrinsicYaw() - exitWorldYaw + 360) % 360;
+
+                // Fix for Cap: Rotate 180 degrees to face 'inwards' or block correctly?
+                // Based on user feedback that rotation is wrong, attempting 180 flip.
+                int nextRotation = (baseRotation + 180) % 360;
+
+                BlockVector3 nextEntryRotated = capPart.getRotatedEntryOffset(nextRotation);
                 BlockVector3 nextOrigin = connectionPoint.subtract(nextEntryRotated);
 
-                // Try paste
-                if (pastePart(world, nextOrigin, nextPart, nextRotation)) {
-                    // Success, recurse
-                    generateRecursive(world, nextPart, nextOrigin, nextRotation, depth + 1, maxDepth);
+                Deepwither.getInstance().getLogger()
+                        .info(String.format("Attempting CAP [%s] at %s | ExYaw:%d IntYaw:%d -> BaseRot:%d FinalRot:%d",
+                                capPart.getFileName(), connectionPoint, exitWorldYaw, capPart.getIntrinsicYaw(),
+                                baseRotation, nextRotation));
+
+                if (pastePart(world, nextOrigin, capPart, nextRotation, parentOrigin)) {
+                    Deepwither.getInstance().getLogger().info("Placed CAP at " + connectionPoint);
+                    return; // Capped successfully
                 }
             }
         }
+        Deepwither.getInstance().getLogger().info("Failed to CAP at " + connectionPoint);
     }
 
     private int getVectorYaw(int x, int z) {
@@ -256,16 +384,48 @@ public class DungeonGenerator {
         }
     }
 
-    private boolean pastePart(World world, BlockVector3 origin, DungeonPart part, int rotation) {
-        // 1. Create Collision Box Candidate
+    private boolean isCollision(BlockVector3 min, BlockVector3 max, BlockVector3 ignoreOrigin) {
+        // Shrink slightly in X and Z to allow touching faces (1 block buffer)
+        int testMinX = min.getX() + 1;
+        int testMaxX = max.getX() - 1;
+        int testMinZ = min.getZ() + 1;
+        int testMaxZ = max.getZ() - 1;
+
+        if (testMinX > testMaxX || testMinZ > testMaxZ) {
+            // Region too small, just check center point
+            int midX = (min.getX() + max.getX()) / 2;
+            int midZ = (min.getZ() + max.getZ()) / 2;
+            testMinX = testMaxX = midX;
+            testMinZ = testMaxZ = midZ;
+        }
+
+        for (PlacedPart existing : placedParts) {
+            // Ignore the direct parent to allow seamless connection
+            if (ignoreOrigin != null && existing.origin.equals(ignoreOrigin)) {
+                continue;
+            }
+
+            // AABB Collision Check
+            boolean overlap = testMinX <= existing.maxBound.getX() && testMaxX >= existing.minBound.getX() &&
+                    min.getY() <= existing.maxBound.getY() && max.getY() >= existing.minBound.getY() &&
+                    testMinZ <= existing.maxBound.getZ() && testMaxZ >= existing.minBound.getZ();
+
+            if (overlap) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean pastePart(World world, BlockVector3 origin, DungeonPart part, int rotation,
+            BlockVector3 ignoreOrigin) {
+        // 1. Calculate world bounds for this part
         PlacedPart candidate = new PlacedPart(part, origin, rotation);
 
-        // 2. Check overlap
-        for (PlacedPart existing : placedParts) {
-            if (candidate.intersects(existing)) {
-                Deepwither.getInstance().getLogger().info("Collision detected at " + origin);
-                return false;
-            }
+        // 2. Check overlap using shrunken 'interior' bounds
+        if (isCollision(candidate.minBound, candidate.maxBound, ignoreOrigin)) {
+            Deepwither.getInstance().getLogger().info("Collision detected at " + origin);
+            return false;
         }
 
         // 3. Paste
@@ -291,10 +451,31 @@ public class DungeonGenerator {
 
             // Remove Markers logic...
             BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
-            removeMarker(world, origin.add(rotatedEntry), Material.GOLD_BLOCK);
+            BlockVector3 worldEntryPos = origin.add(rotatedEntry);
+            removeMarker(world, worldEntryPos, Material.GOLD_BLOCK);
 
             for (BlockVector3 exit : part.getRotatedExitOffsets(rotation)) {
-                removeMarker(world, origin.add(exit), Material.IRON_BLOCK);
+                // Exit is now relative to Entry, so add to worldEntryPos
+                removeMarker(world, worldEntryPos.add(exit), Material.IRON_BLOCK);
+            }
+
+            // Process Mob Markers
+            // Markers are now relative to Entry in DungeonPart
+            for (BlockVector3 mobMarkerRelToEntry : part.getMobMarkers()) {
+                BlockVector3 worldPos = worldEntryPos.add(rotateVector(mobMarkerRelToEntry, rotation));
+                removeMarker(world, worldPos, Material.REDSTONE_BLOCK);
+                pendingMobSpawns
+                        .add(new Location(world, worldPos.getX() + 0.5, worldPos.getY(), worldPos.getZ() + 0.5));
+                Deepwither.getInstance().getLogger().info("Added Mob Spawn at " + worldPos);
+            }
+
+            // Process Loot Markers
+            // Markers are now relative to Entry in DungeonPart
+            for (BlockVector3 lootMarkerRelToEntry : part.getLootMarkers()) {
+                BlockVector3 worldPos = worldEntryPos.add(rotateVector(lootMarkerRelToEntry, rotation));
+                removeMarker(world, worldPos, Material.EMERALD_BLOCK);
+                pendingLootSpawns.add(new Location(world, worldPos.getX(), worldPos.getY(), worldPos.getZ()));
+                Deepwither.getInstance().getLogger().info("Added Loot Spawn at " + worldPos);
             }
 
             placedParts.add(candidate);
@@ -312,10 +493,23 @@ public class DungeonGenerator {
     }
 
     private void removeMarker(World world, BlockVector3 pos, Material expectedType) {
-        Location loc = new Location(world, pos.getX(), pos.getY(), pos.getZ());
-        if (loc.getBlock().getType() == expectedType) {
-            loc.getBlock().setType(Material.AIR);
-        }
+        // Schedule for next tick to ensure WorldEdit changes are applied
+        Bukkit.getScheduler().runTask(Deepwither.getInstance(), () -> {
+            Location loc = new Location(world, pos.getX(), pos.getY(), pos.getZ());
+            Material currentType = loc.getBlock().getType();
+
+            // At connections, GOLD and IRON often overlap and override each other.
+            // GOLD, IRON, REDSTONE, EMERALD are all markers that should be removed.
+            boolean isMarker = currentType == Material.GOLD_BLOCK || currentType == Material.IRON_BLOCK ||
+                    currentType == Material.REDSTONE_BLOCK || currentType == Material.EMERALD_BLOCK;
+
+            if (isMarker) {
+                loc.getBlock().setType(Material.AIR);
+                Deepwither.getInstance().getLogger().info("Removed marker " + currentType + " at " + pos);
+            }
+            // else: silently skip, could be already removed or overridden by a structural
+            // block
+        });
     }
 
     private DungeonPart findPartByType(String type) {
@@ -326,5 +520,28 @@ public class DungeonGenerator {
         if (valid.isEmpty())
             return null;
         return valid.get(random.nextInt(valid.size()));
+    }
+
+    // Helpers
+    private BlockVector3 rotateVector(BlockVector3 vec, int angle) {
+        AffineTransform transform = new AffineTransform().rotateY(angle);
+        var v = transform.apply(vec.toVector3());
+        return BlockVector3.at(Math.round(v.getX()), Math.round(v.getY()), Math.round(v.getZ()));
+    }
+
+    public List<Location> getPendingMobSpawns() {
+        return pendingMobSpawns;
+    }
+
+    public List<Location> getPendingLootSpawns() {
+        return pendingLootSpawns;
+    }
+
+    public List<String> getMobIds() {
+        return mobIds;
+    }
+
+    public String getLootChestTemplate() {
+        return lootChestTemplate;
     }
 }
