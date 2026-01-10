@@ -347,7 +347,8 @@ public class DungeonGenerator {
             Set<BlockVector3> ancestors) {
         List<BlockVector3> rotatedExits = currentPart.getRotatedExitOffsets(currentRot);
         for (int i = 0; i < rotatedExits.size(); i++) {
-            BlockVector3 connectionPoint = currentOrigin.add(rotatedExits.get(i));
+            BlockVector3 rotExit = rotatedExits.get(i);
+            BlockVector3 connectionPoint = currentOrigin.add(rotExit);
 
             BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
             int localExitYaw = currentPart.getExitDirection(originalExit);
@@ -482,33 +483,29 @@ public class DungeonGenerator {
                 Operations.complete(operation);
             }
 
-            // Remove Markers logic...
+            // 1. Entrance marker (Relative 0,0,0 if none, but use entry offset)
             BlockVector3 rotatedEntry = part.getRotatedEntryOffset(rotation);
-            BlockVector3 worldEntryPos = origin.add(rotatedEntry);
-            removeMarker(world, worldEntryPos, Material.GOLD_BLOCK);
+            removeMarker(world, origin.add(rotatedEntry), Material.GOLD_BLOCK);
 
-            for (BlockVector3 exit : part.getRotatedExitOffsets(rotation)) {
-                // Exit is now relative to Entry, so add to worldEntryPos
-                removeMarker(world, worldEntryPos.add(exit), Material.IRON_BLOCK);
+            // 2. All Exits (Already rotated in getRotatedExitOffsets)
+            for (BlockVector3 rotExit : part.getRotatedExitOffsets(rotation)) {
+                removeMarker(world, origin.add(rotExit), Material.IRON_BLOCK);
             }
 
-            // Process Mob Markers
-            // Markers are now relative to Entry in DungeonPart
-            for (BlockVector3 mobMarkerRelToEntry : part.getMobMarkers()) {
-                BlockVector3 worldPos = worldEntryPos.add(rotateVector(mobMarkerRelToEntry, rotation));
+            // 3. Mob Markers
+            for (BlockVector3 mobRel : part.getMobMarkers()) {
+                BlockVector3 rotMob = transformVector(mobRel, rotation);
+                BlockVector3 worldPos = origin.add(rotMob);
                 removeMarker(world, worldPos, Material.REDSTONE_BLOCK);
-                pendingMobSpawns
-                        .add(new Location(world, worldPos.getX() + 0.5, worldPos.getY(), worldPos.getZ() + 0.5));
-                Deepwither.getInstance().getLogger().info("Added Mob Spawn at " + worldPos);
+                pendingMobSpawns.add(new Location(world, worldPos.getX(), worldPos.getY(), worldPos.getZ()));
             }
 
-            // Process Loot Markers
-            // Markers are now relative to Entry in DungeonPart
-            for (BlockVector3 lootMarkerRelToEntry : part.getLootMarkers()) {
-                BlockVector3 worldPos = worldEntryPos.add(rotateVector(lootMarkerRelToEntry, rotation));
+            // 4. Loot Markers
+            for (BlockVector3 lootRel : part.getLootMarkers()) {
+                BlockVector3 rotLoot = transformVector(lootRel, rotation);
+                BlockVector3 worldPos = origin.add(rotLoot);
                 removeMarker(world, worldPos, Material.EMERALD_BLOCK);
                 pendingLootSpawns.add(new Location(world, worldPos.getX(), worldPos.getY(), worldPos.getZ()));
-                Deepwither.getInstance().getLogger().info("Added Loot Spawn at " + worldPos);
             }
 
             placedParts.add(candidate);
@@ -556,13 +553,20 @@ public class DungeonGenerator {
     }
 
     // Helpers
-    private BlockVector3 rotateVector(BlockVector3 vec, int angle) {
+    private BlockVector3 transformVector(BlockVector3 vec, int angle) {
+        if (vec == null)
+            return BlockVector3.ZERO;
+
+        int normalizedAngle = angle % 360;
+        if (normalizedAngle < 0)
+            normalizedAngle += 360;
+
         // Convert Clockwise (Minecraft Yaw) to Counter-Clockwise (WorldEdit
         // AffineTransform)
-        int weAngle = (360 - (angle % 360)) % 360;
+        int weAngle = (360 - normalizedAngle) % 360;
         AffineTransform transform = new AffineTransform().rotateY(weAngle);
-        var v = transform.apply(vec.toVector3());
-        return BlockVector3.at(Math.round(v.getX()), Math.round(v.getY()), Math.round(v.getZ()));
+        var v3 = transform.apply(vec.toVector3());
+        return BlockVector3.at(Math.round(v3.getX()), Math.round(v3.getY()), Math.round(v3.getZ()));
     }
 
     public List<Location> getPendingMobSpawns() {
