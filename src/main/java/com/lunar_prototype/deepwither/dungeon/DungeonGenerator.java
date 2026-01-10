@@ -356,8 +356,10 @@ public class DungeonGenerator {
             for (BlockVector3 mobRel : part.getMobMarkers()) {
                 AffineTransform transform = new AffineTransform().rotateY(rotation);
                 var rotatedMob = transform.apply(mobRel.toVector3());
-                BlockVector3 worldPos = origin.add(Math.round(rotatedMob.getX()), Math.round(rotatedMob.getY()),
-                        Math.round(rotatedMob.getZ()));
+                BlockVector3 worldPos = origin.add(
+                        Math.toIntExact(Math.round(rotatedMob.getX())),
+                        Math.toIntExact(Math.round(rotatedMob.getY())),
+                        Math.toIntExact(Math.round(rotatedMob.getZ())));
                 removeMarker(world, worldPos, Material.REDSTONE_BLOCK);
                 pendingMobSpawns
                         .add(new Location(world, worldPos.getX() + 0.5, worldPos.getY(), worldPos.getZ() + 0.5));
@@ -365,8 +367,10 @@ public class DungeonGenerator {
             for (BlockVector3 lootRel : part.getLootMarkers()) {
                 AffineTransform transform = new AffineTransform().rotateY(rotation);
                 var rotatedLoot = transform.apply(lootRel.toVector3());
-                BlockVector3 worldPos = origin.add(Math.round(rotatedLoot.getX()), Math.round(rotatedLoot.getY()),
-                        Math.round(rotatedLoot.getZ()));
+                BlockVector3 worldPos = origin.add(
+                        Math.toIntExact(Math.round(rotatedLoot.getX())),
+                        Math.toIntExact(Math.round(rotatedLoot.getY())),
+                        Math.toIntExact(Math.round(rotatedLoot.getZ())));
                 removeMarker(world, worldPos, Material.EMERALD_BLOCK);
                 pendingLootSpawns.add(new Location(world, worldPos.getX(), worldPos.getY(), worldPos.getZ()));
             }
@@ -409,5 +413,13 @@ public class DungeonGenerator {
 
     public List<Location> getPendingLootSpawns() {
         return pendingLootSpawns;
+    }
+
+    public List<String> getMobIds() {
+        return mobIds;
+    }
+
+    public String getLootChestTemplate() {
+        return lootChestTemplate;
     }
 }
