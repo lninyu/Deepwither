@@ -7,6 +7,8 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mob;
 import org.bukkit.util.Vector;
 
+import java.util.List;
+
 public class Actuator {
 
     public void execute(ActiveMob activeMob, BanditDecision decision, Location coverLoc) {
@@ -67,6 +69,11 @@ public class Actuator {
                 performSprintZigzag(entity);
                 return;
             }
+
+            if (move.strategy.equals("ESCAPE_SQUEEZE")) {
+                performEscapeSqueeze(entity,new SensorProvider().scanEnemies(entity,entity.getNearbyEntities(32, 32, 32)));
+                return;
+            }
         }
 
         if (move.strategy != null && move.strategy.equals("MAINTAIN_DISTANCE")) {
@@ -90,6 +97,25 @@ public class Actuator {
             case "NONE":
                 entity.getPathfinder().stopPathfinding();
                 break;
+        }
+    }
+
+    /**
+     * 敵に囲まれた際、最も敵が薄い方向、または味方がいる方向へ抜ける
+     */
+    private void performEscapeSqueeze(Mob entity, List<BanditContext.EnemyInfo> enemies) {
+        Vector escapeVec = new Vector(0, 0, 0);
+        for (BanditContext.EnemyInfo enemy : enemies) {
+            // 敵から遠ざかるベクトルの合計
+            Vector diff = entity.getLocation().toVector().subtract(enemy.playerInstance.getLocation().toVector());
+            escapeVec.add(diff.normalize().multiply(1.0 / enemy.dist)); // 近い敵ほど強く反発
+        }
+
+        // 地形チェックをしつつ加速
+        if (!isPathBlocked(entity, escapeVec.normalize())) {
+            entity.setVelocity(escapeVec.normalize().multiply(1.2).setY(0.1));
+        } else {
+            entity.getPathfinder().moveTo(entity.getLocation().add(escapeVec.multiply(3)), 2.0);
         }
     }
 

@@ -1,7 +1,10 @@
 package com.lunar_prototype.deepwither.seeker;
 
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -66,6 +69,31 @@ public class CollectiveKnowledge {
     public static double getDangerLevel(UUID uuid) {
         PlayerTacticalProfile profile = playerProfiles.get(uuid);
         return (profile != null) ? profile.dangerLevel : 0.0;
+    }
+
+    public static BanditDecision.TacticalRole assignRole(Mob self, List<BanditContext.EnemyInfo> enemies) {
+        if (enemies.size() <= 1 && self.getNearbyEntities(8, 8, 8).size() < 2) {
+            return BanditDecision.TacticalRole.SOLO;
+        }
+
+        // 周囲の味方を取得
+        List<Entity> allies = self.getNearbyEntities(12, 12, 12).stream()
+                .filter(e -> e instanceof Mob && !e.equals(self))
+                .collect(java.util.stream.Collectors.toList());
+
+        // 自分が一番HPが高い、または一番ターゲットに近いならTANKER
+        double myHp = self.getHealth();
+        boolean isToughest = allies.stream().allMatch(a -> ((Mob)a).getHealth() <= myHp);
+
+        if (isToughest) return BanditDecision.TacticalRole.TANKER;
+
+        // 既に誰かがTANKERをやっていそうなら、自分はSTRIKERに回る
+        // (簡易的に、自分のUUIDの順序などで役割を散らすのも有効)
+        if (self.getUniqueId().getMostSignificantBits() % 2 == 0) {
+            return BanditDecision.TacticalRole.STRIKER;
+        } else {
+            return BanditDecision.TacticalRole.HARASSER;
+        }
     }
 
     /**

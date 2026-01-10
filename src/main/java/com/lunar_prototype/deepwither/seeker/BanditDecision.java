@@ -24,4 +24,11 @@ public class BanditDecision {
         public String voice_line;
         public String shout_to_allies;
     }
+
+    public enum TacticalRole {
+        TANKER,   // 挑発(BAITING)でタゲを引き、耐える
+        STRIKER,  // 背後や死角から高火力スキル・ダッシュを叩き込む
+        HARASSER, // つかず離れずの距離で嫌がらせ(ORBITAL_SLIDE)をして注意を散らす
+        SOLO      // 1v1状態
+    }
 }
