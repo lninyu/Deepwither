@@ -205,6 +205,8 @@ public class DungeonGenerator {
             PlacedPart firstPlaced = placedParts.get(placedParts.size() - 1);
             List<PlacedPart> nextIgnore = new ArrayList<>();
             nextIgnore.add(firstPlaced);
+            Deepwither.getInstance().getLogger().info(String.format(
+                    "[Gen] Starting from ENTRANCE | EntryPos:%s | FinalStartRot:%d", startOrigin, finalStartRotation));
             generateRecursive(world, startPart, startOrigin, finalStartRotation, 1, maxDepth, 0, nextIgnore);
         }
 
@@ -257,6 +259,9 @@ public class DungeonGenerator {
 
                     for (DungeonPart nextPart : candidates) {
                         int nextRotation = (exitWorldYaw - nextPart.getIntrinsicYaw() + 360) % 360;
+                        Deepwither.getInstance().getLogger().info(String.format(
+                                "[Gen] Trying %s | ExitWorldYaw:%d | NextIntrinsic:%d | ResultNextRot:%d",
+                                nextPart.getFileName(), exitWorldYaw, nextPart.getIntrinsicYaw(), nextRotation));
                         if (pastePart(world, connectionPoint, nextPart, nextRotation, ignoreParts)) {
                             int newChain = type.equals("HALLWAY") ? chainLength + 1 : 0;
 
@@ -380,10 +385,15 @@ public class DungeonGenerator {
             Clipboard clipboard = reader.read();
             try (EditSession editSession = WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(world))) {
                 ClipboardHolder holder = new ClipboardHolder(clipboard);
+                // WorldEdit rotateY is CCW. rotation is CW.
                 holder.setTransform(new AffineTransform().rotateY(-rotation));
 
                 BlockVector3 rotatedOriginOffset = part.getRotatedOriginOffset(rotation);
                 BlockVector3 pastePos = entryPos.add(rotatedOriginOffset);
+
+                Deepwither.getInstance().getLogger().info(String.format(
+                        "[Paste] Part:%s | Rot:%d | OriginRelEntry:%s | RotatedOffset:%s | FinalPastePos:%s",
+                        part.getFileName(), rotation, part.getOriginRelToEntry(), rotatedOriginOffset, pastePos));
 
                 Operation operation = holder.createPaste(editSession).to(pastePos).ignoreAirBlocks(true).build();
                 Operations.complete(operation);
