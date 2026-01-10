@@ -1,5 +1,6 @@
 package com.lunar_prototype.deepwither.seeker;
 
+import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
@@ -185,7 +186,7 @@ public class LiquidCombatEngine {
 
     private BanditDecision thinkV2(BanditContext context, LiquidBrain brain, Mob bukkitEntity) {
         BanditDecision d = thinkV1(context, brain, bukkitEntity);
-        d.engine_version = "v2.4-Tactical-Reward";
+        d.engine_version = "v2.6-Multiverse-Light";
 
         brain.updateTacticalAdvantage();
         double advantage = brain.tacticalMemory.combatAdvantage;
@@ -193,63 +194,55 @@ public class LiquidCombatEngine {
         List<BanditContext.EnemyInfo> enemies = context.environment.nearby_enemies;
         if (enemies.isEmpty()) return d;
 
-        // --- 1. ターゲットの動적スイッチング ---
+        // --- 1. 多角的ターゲッティング (動的評価モデル) ---
         Entity currentTarget = bukkitEntity.getTarget();
-        BanditContext.EnemyInfo closestEnemy = enemies.get(0);
+        BanditContext.EnemyInfo bestTargetInfo = null;
+        double maxScore = -999.0;
 
-        if (currentTarget instanceof Player) {
-            if (currentTarget.getLocation().distance(bukkitEntity.getLocation()) > 15.0 && closestEnemy.dist < 5.0) {
-                bukkitEntity.setTarget(closestEnemy.playerInstance);
-                d.reasoning += " | MULTI: TARGET_SWITCH_PROXIMITY";
+        for (BanditContext.EnemyInfo enemy : enemies) {
+            double score = 0.0;
+
+            // A. 距離スコア (近いほど加点: 20mを基準)
+            score += (20.0 - enemy.dist) * 1.0;
+
+            // B. 低HP優先スコア (処刑ロジック: 弱っている敵を執拗に狙う)
+            if (enemy.playerInstance instanceof Player p) {
+                double hpRatio = p.getHealth() / p.getMaxHealth();
+                score += (1.0 - hpRatio) * 15.0; // HPが低いほど最大15点加点
+            }
+
+            // C. 視界スコア
+            if (enemy.in_sight) score += 5.0;
+
+            // D. ターゲット維持バイアス (チャカチャカとターゲットが変わるのを防ぐ)
+            if (currentTarget != null && enemy.playerInstance.getUniqueId().equals(currentTarget.getUniqueId())) {
+                score += 8.0;
+            }
+
+            // E. ヘイトスコア (自分を攻撃した直後の敵への報復: 必要に応じてbrainから参照)
+
+            if (score > maxScore) {
+                maxScore = score;
+                bestTargetInfo = enemy;
+            }
+        }
+
+        // ターゲットの切り替え判定
+        if (bestTargetInfo != null) {
+            Player bestPlayer = (Player) bestTargetInfo.playerInstance;
+            if (currentTarget == null || !bestPlayer.getUniqueId().equals(currentTarget.getUniqueId())) {
+                bukkitEntity.setTarget(bestPlayer);
+                d.reasoning += " | TGT_SWITCH:" + bestPlayer.getName();
+
+                // 【Q学習への報酬】適切なターゲット（弱っている敵など）を選んだことへのフィードバック
+                if (maxScore > 25.0) { // 高い評価値のターゲットに切り替えた場合
+                    brain.qTable.update(brain.lastStateKey, "TARGET_SELECT", 0.1, "TACTICAL_SWITCH");
+                }
             }
         }
 
         Player target = (Player) bukkitEntity.getTarget();
         if (target == null) return d;
-
-        // --- 【新規】移動品質の事後評価と報酬 (Reward Calculation) ---
-        if (brain.lastStateKey != null && brain.lastActionType != null) {
-            double moveReward = 0.0;
-
-            if (target != null) {
-                double currentDist = bukkitEntity.getLocation().distance(target.getLocation());
-
-                // 1. 背後・側面奪取報酬 (Flanking Reward)
-                // 敵の視界の外側（側面〜背後）に回り込んでいるか
-                Vector toSelf = bukkitEntity.getLocation().toVector().subtract(target.getLocation().toVector()).normalize();
-                Vector targetFacing = target.getLocation().getDirection();
-                double angle = toSelf.dot(targetFacing); // 1.0に近いほど敵の正面、-1.0に近いほど敵の背後
-
-                if (angle < -0.2) { // ターゲットの背後側に位置している
-                    moveReward += 0.2;
-                    d.reasoning += " | RWD:FLANK";
-                }
-
-                // 2. 弱点距離の維持報酬 (Spacing Reward)
-                // 集合知で「CLOSE_QUARTERS」が推奨されている場合、密着状態を維持すれば報酬
-                String globalWeakness = CollectiveKnowledge.getGlobalWeakness(target.getUniqueId());
-                if (globalWeakness.equals("CLOSE_QUARTERS") && currentDist < 2.5) {
-                    moveReward += 0.15;
-                    d.reasoning += " | RWD:STICKY";
-                } else if (currentDist >= 3.0 && currentDist <= 5.0) {
-                    // 通常時、槍のリーチ外かつ自分の攻撃可能圏内にいる場合
-                    moveReward += 0.05;
-                }
-
-                // 3. 安全圏への離脱報酬 (Escape Reward)
-                // 囲まれている（GANKED）状態で、敵同士の密集地帯から離れられたか
-                if (context.environment.nearby_enemies.size() > 1) {
-                    // 前回の距離より、平均的な敵との距離が離れていれば生存報酬
-                    moveReward += 0.1;
-                }
-            }
-
-            // Q-Tableの更新 (移動報酬を反映)
-            // 攻撃による直接報酬とは別に、プロセスの良さを学習させる
-            if (moveReward > 0) {
-                brain.qTable.update(brain.lastStateKey, brain.lastActionType, moveReward, "MOVEMENT_QUALITY");
-            }
-        }
 
         // --- 【新規】集合知プロファイルの参照 ---
         // 影響が強すぎないよう、まずは「情報の取得」のみ
@@ -274,13 +267,34 @@ public class LiquidCombatEngine {
 
         // --- 3. 動的 Epsilon-Greedy (集合知によるバイアス) ---
         String currentStateKey = brain.qTable.getStateKey(advantage, enemyDist, isRecovering, enemies);
+
         String[] options = {"ATTACK", "EVADE", "BAITING", "COUNTER", "OBSERVE", "RETREAT", "BURST_DASH", "ORBITAL_SLIDE"};
+
+        String recommendedAction = "OBSERVE";
+        double bestExpectation = -999.0;
+
+        // シミュレーション回数（軽量化のため最大3回）
+        int visionCount = (brain.composure > 0.7) ? 3 : (brain.composure > 0.3 ? 2 : 1);
+
+        for (int i = 0; i < visionCount; i++) {
+            // 現在のQテーブルから上位の候補をピックアップ
+            String candidate = (i == 0) ? brain.qTable.getBestAction(currentStateKey, options) : options[new Random().nextInt(options.length)];
+
+            // --- 仮想世界での期待値計算 (Lightweight Simulation) ---
+            double expectation = evaluateTimeline(candidate, brain, target, bukkitEntity,globalWeakness);
+
+            if (expectation > bestExpectation) {
+                bestExpectation = expectation;
+                recommendedAction = candidate;
+            }
+        }
+
+        d.reasoning += " | MV_VISION:" + visionCount + "(" + recommendedAction + ")";
 
         // 集合知の影響：仲間が殺されまくっている(globalFearが高い)なら、少し慎重に(Epsilon増)
         double epsilon = 0.1 + (brain.frustration * 0.4) + (globalFear * 0.1);
         epsilon = Math.min(0.6, epsilon); // 最大60%までに制限
 
-        String recommendedAction;
         if (Math.random() < epsilon) {
             // 集合知に「弱点」が登録されている場合、探索中にその行動を少しだけ選びやすくする
             if (globalWeakness.equals("CLOSE_QUARTERS") && Math.random() < 0.3) {
@@ -335,6 +349,121 @@ public class LiquidCombatEngine {
         brain.lastStateKey = currentStateKey;
         brain.lastActionType = d.decision.action_type;
 
+        double dist = bukkitEntity.getLocation().distance(target.getLocation());
+
+        applyMobilityRewards(bukkitEntity,brain,d,dist);
+
         return d;
+    }
+
+    private void applyMobilityRewards(Mob bukkitEntity, LiquidBrain brain, BanditDecision d, double currentDist) {
+        if (brain.lastStateKey == null || brain.lastActionType == null) return;
+
+        Player target = (Player) bukkitEntity.getTarget();
+        if (target == null) return;
+
+        double totalProcessReward = 0.0;
+        StringBuilder rewardDebug = new StringBuilder();
+
+        // 1. 背後・側面奪取（Flanking）
+        // ターゲットの視線方向と、自分へのベクトルのドット積で判定
+        Vector toSelf = bukkitEntity.getLocation().toVector().subtract(target.getLocation().toVector()).normalize();
+        Vector targetFacing = target.getLocation().getDirection();
+        double dot = toSelf.dot(targetFacing);
+
+        if (dot < -0.3) { // 背後側
+            totalProcessReward += 0.25;
+            rewardDebug.append("FLANK(+0.25) ");
+        } else if (dot < 0.2) { // 側面
+            totalProcessReward += 0.1;
+            rewardDebug.append("SIDE(+0.1) ");
+        }
+
+        // 2. リーチ・スペーシング（Spacing）
+        // 集合知で「槍対策(CLOSE_QUARTERS)」が出ている場合、密着に加点
+        String weakness = CollectiveKnowledge.getGlobalWeakness(target.getUniqueId());
+        if (weakness.equals("CLOSE_QUARTERS")) {
+            if (currentDist < 2.5) {
+                totalProcessReward += 0.2;
+                rewardDebug.append("STICKY(+0.2) ");
+            }
+        } else {
+            // 通常は「付かず離れず」の維持に微加点
+            if (currentDist > 3.0 && currentDist < 5.0) {
+                totalProcessReward += 0.05;
+                rewardDebug.append("DIST(+0.05) ");
+            }
+        }
+
+        // 3. 視線誘導（Baiting Success）
+        // BAITINGを選択中に敵が攻撃をミスした、あるいは敵を立ち止まらせたら加点
+        if (brain.lastActionType.equals("BAITING") && brain.composure > 0.8) {
+            totalProcessReward += 0.15;
+            rewardDebug.append("BAIT_WIN(+0.15) ");
+        }
+
+        // Q-Tableへの反映
+        if (totalProcessReward > 0) {
+            brain.qTable.update(brain.lastStateKey, brain.lastActionType, totalProcessReward, "PROCESS");
+            d.reasoning += " | RWD: " + rewardDebug.toString();
+        }
+    }
+
+    private double evaluateTimeline(String action, LiquidBrain brain, Player target, Mob self, String globalWeakness) {
+        double qValue = brain.qTable.getQValue(brain.lastStateKey, action);
+        double score = qValue; // Q値をベースにする
+
+        // 1. 【自己同期】自分の攻撃リズムとの適合性
+        long ticksSinceLastSelf = self.getTicksLived() - brain.selfPattern.lastAttackTick;
+        double selfRhythmScore = 0.0;
+        if (brain.selfPattern.averageInterval > 0) {
+            // 自分の理想的な攻撃間隔に近いほど「ATTACK」系への期待値を高める
+            selfRhythmScore = Math.max(0, 1.0 - Math.abs(ticksSinceLastSelf - brain.selfPattern.averageInterval) / 20.0);
+        }
+
+        // 2. 【未来予測位置】ターゲットが1秒後(20ticks)にどこにいるか
+        // ベクトルを用いて簡易的に予測：現在地 + (速度ベクトル * 20)
+        Vector enemyVelocity = target.getVelocity();
+        Location predictedLoc = target.getLocation().add(enemyVelocity.multiply(20));
+        double predictedDist = self.getLocation().distance(predictedLoc);
+
+        // 3. 【敵の未来行動予測】パターンスコアの反映
+        LiquidBrain.AttackPattern pattern = brain.enemyPatterns.get(target.getUniqueId());
+        boolean enemyLikelyToAttack = false;
+        if (pattern != null) {
+            long ticksSinceEnemyLast = self.getTicksLived() - pattern.lastAttackTick;
+            // 敵の平均間隔に近づいていたら「敵が攻撃してくる世界線」と予測
+            enemyLikelyToAttack = Math.abs(ticksSinceEnemyLast - pattern.averageInterval) < 10;
+        }
+
+        // --- アクション別・多次元スコアリング ---
+        switch (action) {
+            case "ATTACK":
+                // 自分のリズムが整っており、かつ敵の予測位置が射程内なら高スコア
+                score += selfRhythmScore * 0.4;
+                if (predictedDist < 3.0) score += 0.3;
+                // 敵が攻撃してきそうなら、あえて相打ちを狙うかどうかのQ値判断に任せる
+                break;
+
+            case "EVADE":
+                // 敵が攻撃してくる可能性が高い世界線では、回避の期待値を大幅に上げる
+                if (enemyLikelyToAttack) score += 0.6;
+                // 自分が壁を背負っている予測位置なら、さらに加点
+                break;
+
+            case "BURST_DASH":
+                // 敵の未来位置が遠ざかっているなら、追いかけるためのダッシュに価値が出る
+                if (predictedDist > 5.0) score += 0.4;
+                // 集合知の弱点が CLOSE_QUARTERS ならさらに加点
+                if (globalWeakness.equals("CLOSE_QUARTERS")) score += 0.3;
+                break;
+
+            case "COUNTER":
+                // 敵の攻撃タイミングと自分のリズムが合う「完璧な瞬間」を予見
+                if (enemyLikelyToAttack && selfRhythmScore > 0.5) score += 0.8;
+                break;
+        }
+
+        return score;
     }
 }

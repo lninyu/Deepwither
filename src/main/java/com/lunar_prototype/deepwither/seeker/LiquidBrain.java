@@ -89,6 +89,12 @@ public class LiquidBrain {
             double newQ = currentQ + learningRate * (reward + discountFactor * maxNextQ - currentQ);
             actions.put(action, newQ);
         }
+
+        public double getQValue(String stateKey, String action) {
+            // 状態(StateKey)が存在しない、またはその行動(Action)が未学習の場合は初期値 0.5 を返す
+            if (!table.containsKey(stateKey)) return 0.5;
+            return table.get(stateKey).getOrDefault(action, 0.5);
+        }
     }
 
     public final QTable qTable = new QTable();
