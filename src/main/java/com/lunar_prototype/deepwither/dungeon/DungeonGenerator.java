@@ -347,7 +347,7 @@ public class DungeonGenerator {
             Set<BlockVector3> ancestors) {
         List<BlockVector3> rotatedExits = currentPart.getRotatedExitOffsets(currentRot);
         for (int i = 0; i < rotatedExits.size(); i++) {
-            BlockVector3 connectionPoint = currentOrigin.add(exitOffset);
+            BlockVector3 connectionPoint = currentOrigin.add(rotatedExits.get(i));
 
             BlockVector3 originalExit = currentPart.getExitOffsets().get(i);
             int localExitYaw = currentPart.getExitDirection(originalExit);
