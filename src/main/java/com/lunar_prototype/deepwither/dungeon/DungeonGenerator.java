@@ -383,11 +383,9 @@ public class DungeonGenerator {
             try (EditSession editSession = WorldEdit.getInstance().newEditSession(BukkitAdapter.adapt(world))) {
                 ClipboardHolder holder = new ClipboardHolder(clipboard);
 
-                // WorldEdit rotate2D is CCW. our rotation is CW.
-                // To rotate CW by 90, we rotate CCW by 270 (or -90).
-                if (rotation != 0) {
-                    holder.rotate2D(-rotation);
-                }
+                // WorldEdit rotateY is CCW. our rotation is CW.
+                // AffineTransform is the standard way if rotate2D is missing.
+                holder.setTransform(new AffineTransform().rotateY(-rotation));
 
                 BlockVector3 rotatedOriginOffset = part.getRotatedOriginOffset(rotation);
                 BlockVector3 pastePos = entryPos.add(rotatedOriginOffset);
