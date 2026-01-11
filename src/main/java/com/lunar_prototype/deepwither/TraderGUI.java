@@ -279,7 +279,7 @@ public class TraderGUI implements Listener {
         NamespacedKey pdc_key1 = new NamespacedKey(Deepwither.getInstance(),TRADER_ID_KEY);
         String traderid = null;
         if (meta.getPersistentDataContainer().has(pdc_key1, PersistentDataType.STRING)){
-            cost = meta.getPersistentDataContainer().get(sellIdKey, PersistentDataType.INTEGER);
+            traderid = meta.getPersistentDataContainer().get(pdc_key1,PersistentDataType.STRING);
         }
         NamespacedKey pdc_key2 = new NamespacedKey(Deepwither.getInstance(),OFFER_ID_KEY);
         String offerid = null;
