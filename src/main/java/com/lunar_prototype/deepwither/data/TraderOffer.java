@@ -1,6 +1,9 @@
 package com.lunar_prototype.deepwither.data;
 
 import org.bukkit.inventory.ItemStack;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 // ItemFactoryとの連携を可能にするため、カスタムアイテムの生成はOptional<ItemStack>を返す
@@ -53,6 +56,11 @@ public class TraderOffer {
     public Optional<ItemStack> getLoadedItem() {
         return loadedItem;
     }
+
+    private List<ItemStack> requiredItems = new ArrayList<>();
+
+    public List<ItemStack> getRequiredItems() { return requiredItems; }
+    public void setRequiredItems(List<ItemStack> items) { this.requiredItems = items; }
 
     // ... 必要に応じてSellOfferと共通化/分離してください
 }

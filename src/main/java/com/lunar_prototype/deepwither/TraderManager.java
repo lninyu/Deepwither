@@ -120,7 +120,35 @@ public class TraderManager {
                 ? ((Number) requiredCreditObj).intValue()
                 : 0; // 値がなければデフォルト値 0
 
-        return new TraderOffer(id, type, amount, cost, requiredCredit);
+        TraderOffer offer = new TraderOffer(id, type, amount, cost, requiredCredit);
+
+        // ★ 追加: 必要アイテムの読み込み
+        if (offerMap.containsKey("required_items")) {
+            List<Map<?, ?>> reqItemsList = (List<Map<?, ?>>) offerMap.get("required_items");
+            List<ItemStack> requiredItems = new ArrayList<>();
+
+            for (Map<?, ?> reqMap : reqItemsList) {
+                String reqType = (String) reqMap.getOrDefault("type", "VANILLA");
+                int reqAmount = ((Number) reqMap.getOrDefault("amount", 1)).intValue();
+
+                if (reqType.equalsIgnoreCase("CUSTOM")) {
+                    String customId = (String) reqMap.get("custom_id");
+                    File itemFolder = new File(plugin.getDataFolder(), "items");
+                    ItemStack is = ItemLoader.loadSingleItem(customId, this.itemFactory, itemFolder);
+                    if (is != null) {
+                        is.setAmount(reqAmount);
+                        requiredItems.add(is);
+                    }
+                } else {
+                    Material mat = Material.matchMaterial((String) reqMap.get("material"));
+                    if (mat != null) {
+                        requiredItems.add(new ItemStack(mat, reqAmount));
+                    }
+                }
+            }
+            offer.setRequiredItems(requiredItems);
+        }
+        return offer;
     }
 
     // --- 売却オファーのロード ---
@@ -206,6 +234,19 @@ public class TraderManager {
                 });
 
         return allOffers;
+    }
+
+    /**
+     * トレーダーIDとアイテムのID(ID/Material)を指定して、最初に見つかったオファーを取得する。
+     * @param traderId トレーダーID
+     * @param itemId 検索したいアイテムのID (Material名 or custom_id)
+     * @return 該当する TraderOffer、見つからない場合は null
+     */
+    public TraderOffer getOfferById(String traderId, String itemId) {
+        return getAllOffers(traderId).stream()
+                .filter(offer -> offer.getId().equals(itemId))
+                .findFirst()
+                .orElse(null);
     }
 
     public int getSellPrice(String id) {

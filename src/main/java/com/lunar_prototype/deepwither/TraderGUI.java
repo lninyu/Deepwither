@@ -25,6 +25,7 @@ public class TraderGUI implements Listener {
     public static final String SELL_GUI_TITLE = "§8[売却] §f総合売却所"; // 全体共通の売却タイトル
 
     private static final String SELL_ID_KEY = "sell_price";
+    private static final String OFFER_ID_KEY = "offer_id";
     private static final String CUSTOM_ID_KEY = "custom_id";
     private static final String TRADER_ID_KEY = "trader_id";
 
@@ -53,33 +54,52 @@ public class TraderGUI implements Listener {
 
         // 4. オファーをGUIに配置
         for (int i = 0; i < availableOffers.size(); i++) {
-
-            // ★ 予約スロットに到達したら、ループを終了する
-            if (i >= maxOfferSlots) {
-                // オファー数がスロット容量を超えたため、超過分は表示されない
-                break;
-            }
+            if (i >= maxOfferSlots) break;
 
             TraderOffer offer = availableOffers.get(i);
-
             int finalI = i;
-            offer.getLoadedItem().ifPresent(originalItem -> {
-                // ... (アイテムの複製、Loreへの価格/信用度追加、PDC設定の既存ロジック) ...
 
+            offer.getLoadedItem().ifPresent(originalItem -> {
                 ItemStack displayItem = originalItem.clone();
                 ItemMeta meta = displayItem.getItemMeta();
-
-                // アイテムロアに価格と必要信用度を追加
                 List<String> lore = meta.getLore() != null ? meta.getLore() : new java.util.ArrayList<>();
 
                 lore.add("");
                 lore.add("§a--- 取引情報 ---");
-                lore.add("§7価格: §6" + Deepwither.getEconomy().format(offer.getCost()));
+
+                // 1. お金コストの表示 (0円でない場合のみ表示などの調整も可能)
+                if (offer.getCost() > 0) {
+                    lore.add("§7価格: §6" + Deepwither.getEconomy().format(offer.getCost()));
+                }
+
+                // ★ 2. 必要アイテムの表示を追加
+                List<ItemStack> reqItems = offer.getRequiredItems();
+                if (reqItems != null && !reqItems.isEmpty()) {
+                    lore.add("§7必要アイテム:");
+                    for (ItemStack req : reqItems) {
+                        // アイテム名を取得（表示名があればそれを、なければMaterial名を整形）
+                        String itemName = req.hasItemMeta() && req.getItemMeta().hasDisplayName()
+                                ? req.getItemMeta().getDisplayName()
+                                : req.getType().name().toLowerCase().replace("_", " ");
+                        lore.add(" §8- §f" + itemName + " §7×" + req.getAmount());
+                    }
+                }
+
                 lore.add("§7必要信用度: §b" + offer.getRequiredCredit());
 
+                // PDCの設定 (既存 + 追加)
                 NamespacedKey pdc_key = new NamespacedKey(Deepwither.getInstance(), SELL_ID_KEY);
                 meta.getPersistentDataContainer().set(pdc_key, PersistentDataType.INTEGER, offer.getCost());
 
+                NamespacedKey pdc_key2 = new NamespacedKey(Deepwither.getInstance(), OFFER_ID_KEY); // 文字列定数化を推奨
+                meta.getPersistentDataContainer().set(pdc_key2, PersistentDataType.STRING, offer.getId());
+
+                NamespacedKey pdc_key3 = new NamespacedKey(Deepwither.getInstance(), TRADER_ID_KEY);
+                meta.getPersistentDataContainer().set(pdc_key3, PersistentDataType.STRING, traderId);
+
+                // ★ 購入可否チェックに「アイテム所持」を含めるか検討
+                // ここではシンプルに信用度のみで判定していますが、必要であれば
+                // inventory.containsAtLeast() を使って色を変えることも可能です。
                 if (playerCredit >= offer.getRequiredCredit()) {
                     lore.add(ChatColor.GREEN + "クリックして購入");
                 } else {
@@ -89,7 +109,6 @@ public class TraderGUI implements Listener {
 
                 meta.setLore(lore);
                 displayItem.setItemMeta(meta);
-
                 gui.setItem(finalI, displayItem);
             });
         }
@@ -257,8 +276,25 @@ public class TraderGUI implements Listener {
             cost = meta.getPersistentDataContainer().get(sellIdKey, PersistentDataType.INTEGER);
         }
 
+        NamespacedKey pdc_key1 = new NamespacedKey(Deepwither.getInstance(),TRADER_ID_KEY);
+        String traderid = null;
+        if (meta.getPersistentDataContainer().has(pdc_key1, PersistentDataType.STRING)){
+            cost = meta.getPersistentDataContainer().get(sellIdKey, PersistentDataType.INTEGER);
+        }
+        NamespacedKey pdc_key2 = new NamespacedKey(Deepwither.getInstance(),OFFER_ID_KEY);
+        String offerid = null;
+        if (meta.getPersistentDataContainer().has(pdc_key2, PersistentDataType.STRING)){
+            offerid = meta.getPersistentDataContainer().get(pdc_key2,PersistentDataType.STRING);
+        }
+
         if (cost <= 0) {
             player.sendMessage(ChatColor.RED + "このアイテムは購入できません。（価格設定なし）");
+            return;
+        }
+
+        TraderOffer offer = manager.getOfferById(traderid,offerid);
+        if (offer == null) {
+            player.sendMessage(ChatColor.RED + "エラー: 指定された商品が見つかりませんでした。");
             return;
         }
 
@@ -266,6 +302,24 @@ public class TraderGUI implements Listener {
         if (!econ.has(player, cost)) {
             player.sendMessage(ChatColor.RED + "残高が不足しています！ 必要額: " + econ.format(cost));
             return;
+        }
+
+        // 3. 必要アイテムのチェック
+        List<ItemStack> requiredItems = offer.getRequiredItems();
+        if (requiredItems != null && !requiredItems.isEmpty()) { // nullと空リストの両方を安全にチェック
+            for (ItemStack req : requiredItems) {
+                if (req == null) continue; // 万が一リストの中にnullが混じっていてもスキップ
+
+                if (!player.getInventory().containsAtLeast(req, req.getAmount())) {
+                    // 表示名があれば使い、なければMaterial名を表示
+                    String itemName = req.hasItemMeta() && req.getItemMeta().hasDisplayName()
+                            ? req.getItemMeta().getDisplayName()
+                            : req.getType().name();
+
+                    player.sendMessage(ChatColor.RED + "必要なアイテムが不足しています: " + itemName + " ×" + req.getAmount());
+                    return;
+                }
+            }
         }
 
         // 3. インベントリ空きチェック
@@ -319,6 +373,9 @@ public class TraderGUI implements Listener {
 
         // 5. 取引実行
         econ.withdrawPlayer(player, cost);
+        for (ItemStack req : requiredItems) {
+            player.getInventory().removeItem(req);
+        }
         player.getInventory().addItem(itemToGive);
 
         player.sendMessage(ChatColor.GREEN + itemToGive.getItemMeta().getDisplayName() + " を " + econ.format(cost) + " で購入しました。");
