@@ -195,35 +195,62 @@ public class AnimationListener implements Listener {
 
     // 重い武器の振り下ろし
     private void spawnHeavySwingEffect(LivingEntity entity) {
-        Location base = entity.getLocation().add(0, 1.2, 0);
-        Vector dir = entity.getLocation().getDirection().normalize();
+        Location eyeLoc = entity.getEyeLocation();
+        Vector dir = eyeLoc.getDirection().normalize();
 
-        for (double y = 0; y <= 1.2; y += 0.15) {
-            Location loc = base.clone()
-                    .add(dir.clone().multiply(1.2))
-                    .subtract(0, y, 0);
+        // 1. 縦の振り下ろし軌跡 (視界を遮らないよう、少し前方にオフセット)
+        // プレイヤーの目の前から足元へ向かってパーティクルを並べる
+        for (double i = 0.0; i <= 1.5; i += 0.2) {
+            // 腕の振りに合わせて、少しずつ下にずらしていく
+            Location point = eyeLoc.clone()
+                    .add(dir.clone().multiply(1.5)) // 1.5ブロック前方
+                    .subtract(0, i, 0);            // 上から下へ
 
+            // 鋭い火花のようなエフェクト
             entity.getWorld().spawnParticle(
-                    Particle.EXPLOSION,
-                    loc,
-                    2,
-                    0.05, 0.05, 0.05,
-                    0
+                    Particle.CRIT,
+                    point,
+                    3,       // 個数は少なめで密度を上げる
+                    0.01, 0.01, 0.01,
+                    0.1      // 少しだけ飛び散らせる
             );
         }
 
+        // 2. 着弾地点の判定 (足元の少し前方)
+        Location impactLoc = entity.getLocation().add(dir.clone().multiply(1.5));
+
+        // 3. 地面への衝撃波 (横方向の広がり)
+        // 視界の邪魔にならない足元に、破片とフラッシュを出す
         entity.getWorld().spawnParticle(
-                Particle.BLOCK,
-                base.clone().add(dir.multiply(1.3)),
-                10,
-                Material.STONE.createBlockData()
+                Particle.FLASH, // 一瞬光るが、煙を残さないので視界を遮らない
+                impactLoc.clone().add(0, 0.1, 0),
+                1,
+                0, 0, 0,
+                0
         );
 
+        // 叩きつけた際の土煙/石片
+        entity.getWorld().spawnParticle(
+                Particle.BLOCK,
+                impactLoc,
+                15,
+                0.2, 0.1, 0.2, // 横に広げる
+                0.1,
+                Material.STONE.createBlockData() // 実際は足元のブロックを取得しても良い
+        );
+
+        // 4. 重低音の強調
         entity.getWorld().playSound(
                 entity.getLocation(),
-                Sound.ENTITY_PLAYER_ATTACK_STRONG,
-                1.0f,
-                0.6f
+                Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, // 金属が叩きつけられる音
+                0.8f,
+                0.5f // 低ピッチ
+        );
+        entity.getWorld().playSound(
+                entity.getLocation(),
+                Sound.ENTITY_GENERIC_EXPLODE, // 爆発音を小さく混ぜて重量感を出す
+                0.5f,
+                1.2f
         );
     }
 
