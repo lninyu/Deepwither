@@ -73,21 +73,22 @@ public class PlayerInventoryRestrictor implements Listener {
 
                 var inventory = player.getInventory();
 
-                if (clicked.getType() != InventoryType.CRAFTING && event.getView().getTopInventory().getType() == InventoryType.CRAFTING) {
+                // いまのところgui以外の外部インベントリがなさそう
+                // プレイヤーのインベントリ内のみ処理
+                if (clicked.getType() == InventoryType.PLAYER && event.getView().getTopInventory().getType() == InventoryType.CRAFTING) {
                     var slot = event.getSlot();
-                    if (HOTBAR_HEAD > slot || slot > HOTBAR_TAIL) {
+
+                    if (slot < HOTBAR_HEAD || HOTBAR_TAIL < slot) {
                         var isWeapon = isWeapon(source);
-                        applyStrategy(isWeapon ? hasWeaponInHotbar(inventory) ? CANCEL : QUICKMOVE : QUICKMOVE, inventory, source);
-                        if (isWeapon && !source.isEmpty()) player.sendMessage(MULTIPLE_WEAPONS);
+
+                        applyStrategy(isWeapon && hasWeaponInHotbar(inventory) ? CANCEL : QUICKMOVE, inventory, source);
+
+                        if (isWeapon && !source.isEmpty()) {
+                            player.sendMessage(MULTIPLE_WEAPONS);
+                        }
+
                         event.setCancelled(true);
                     }
-                } else if (clicked.getType() != InventoryType.PLAYER) {
-                    // fixme: guiからアイテムを取り出せるバグがある, この処理を一時的に無効化
-//                    var isWeapon = isWeapon(source);
-//                    applyStrategy(isWeapon ? hasWeaponInHotbar(inventory) ? WEAPON : VANILLA : REVERSE, inventory, source);
-//                    if (isWeapon && !source.isEmpty()) player.sendMessage(MULTIPLE_WEAPONS);
-//                    event.setCancelled(true);
-                    return;
                 }
             }
             case HOTBAR_SWAP ->  {
