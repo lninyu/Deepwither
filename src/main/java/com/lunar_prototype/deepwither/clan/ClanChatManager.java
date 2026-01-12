@@ -25,7 +25,7 @@ public class ClanChatManager implements Listener {
 
         Clan clan = clanManager.getClanByPlayer(player.getUniqueId());
         // tag ではなく ID 全文を表示に使用する
-        String clanDisplay = (clan != null) ? "§b[" + clan.getId() + "]§r " : "";
+        String clanDisplay = (clan != null) ? "§b[" + clan.getName() + "]§r " : "";
 
         String finalMessage = originalMessage.equals(convertedMessage)
                 ? originalMessage
