@@ -63,120 +63,10 @@ public class DamageManager implements Listener {
         }
     }
 
-    private void sendLog(Player player, PlayerSettingsManager.SettingType type, String message) {
+    public void sendLog(Player player, PlayerSettingsManager.SettingType type, String message) {
         if (settingsManager.isEnabled(player, type)) {
             player.sendMessage(message);
         }
-    }
-
-    // ----------------------------------------------------
-    // --- A. Mythic Mobs スキルダメージ処理 (魔法 & 物理) ---
-    // ----------------------------------------------------
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onMythicDamage(MythicDamageEvent e) {
-        if (!(e.getCaster().getEntity().getBukkitEntity() instanceof Player player)) return;
-        if (!(e.getTarget().getBukkitEntity() instanceof LivingEntity targetLiving)) return;
-
-        if (targetLiving instanceof Player pTarget && statManager.getActualCurrentHealth(pTarget) <= 0) {
-            e.setCancelled(true);
-            return;
-        }
-
-        long currentTime = System.currentTimeMillis();
-        long iFrameEndTime = iFrameEndTimes.getOrDefault(targetLiving.getUniqueId(), 0L);
-
-        if (currentTime < iFrameEndTime) {
-            e.setCancelled(true);
-            return;
-        }
-        iFrameEndTimes.put(targetLiving.getUniqueId(), currentTime + DAMAGE_I_FRAME_MS);
-
-
-        // 特攻タグ処理
-        if (e.getDamageMetadata().getTags().contains("UNDEAD")) {
-            if (handleUndeadDamage(player, targetLiving, e)) return;
-        }
-
-        // LIFESTEAL処理
-        if (e.getDamageMetadata().getTags().contains("LIFESTEAL")) {
-            handleLifesteal(player, targetLiving, e.getDamage());
-        }
-
-        StatMap attackerStats = StatManager.getTotalStatsFromEquipment(player);
-        StatMap defenderStats = getDefenderStats(targetLiving);
-        EntityDamageEvent.DamageCause cause = e.getDamageMetadata().getDamageCause();
-
-        // ★★★ 修正箇所: 魔法か物理かで分岐 ★★★
-        // "ENTITY_EXPLOSION" を魔法ダメージとして定義している前提
-        boolean isMagic = (cause == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION);
-
-        double baseDamage = 0.0;
-        double finalDamage = 0.0;
-        String damageMsgPrefix = "";
-
-        if (isMagic) {
-            // --- 魔法ダメージ計算 ---
-            baseDamage = e.getDamage() + attackerStats.getFinal(StatType.MAGIC_DAMAGE);
-
-            // クリティカル
-            boolean isCrit = rollChance(attackerStats.getFinal(StatType.CRIT_CHANCE));
-            if (isCrit) {
-                baseDamage *= (attackerStats.getFinal(StatType.CRIT_DAMAGE) / 100.0);
-                sendLog(player, PlayerSettingsManager.SettingType.SHOW_SPECIAL_LOG, "§6§l魔法クリティカル！");
-            }
-
-            // Burst / AOE 補正
-            double bonusDamage = 0;
-            boolean isBurst = e.getDamageMetadata().getTags().contains("BURST");
-            boolean isAoe = e.getDamageMetadata().getTags().contains("AOE");
-
-            if (isBurst) {
-                baseDamage *= 0.4;
-                bonusDamage += attackerStats.getFinal(StatType.MAGIC_BURST_DAMAGE);
-            }
-            if (isAoe) {
-                baseDamage *= 0.6;
-                bonusDamage += attackerStats.getFinal(StatType.MAGIC_AOE_DAMAGE);
-            }
-            baseDamage += bonusDamage;
-
-            // 魔法防御計算
-            finalDamage = applyDefense(baseDamage, defenderStats.getFinal(StatType.MAGIC_RESIST), MAGIC_DEFENSE_DIVISOR);
-
-            // 連続ヒット減衰
-            finalDamage = applyMultiHitDecay(player, targetLiving, finalDamage);
-
-            damageMsgPrefix = isAoe ? "§b§l魔法AOEダメージ！" : (isBurst ? "§c§l魔法バーストダメージ！" : "§b§l魔法ダメージ！");
-
-        } else {
-            // --- 物理スキルダメージ計算 (ENTITY_ATTACK, CUSTOMなど) ---
-            // ※ MythicMobsのスキルダメージ(e.getDamage()) に 物理攻撃力(ATTACK_DAMAGE) を加算する設計にします
-            baseDamage = e.getDamage() + attackerStats.getFinal(StatType.ATTACK_DAMAGE);
-
-            // クリティカル (物理扱いなので同様に判定)
-            boolean isCrit = rollChance(attackerStats.getFinal(StatType.CRIT_CHANCE));
-            if (isCrit) {
-                baseDamage *= (attackerStats.getFinal(StatType.CRIT_DAMAGE) / 100.0);
-                player.sendMessage("§6§l物理スキルクリティカル！");
-            }
-
-            // 物理防御計算
-            finalDamage = applyDefense(baseDamage, defenderStats.getFinal(StatType.DEFENSE), DEFENSE_DIVISOR);
-
-            damageMsgPrefix = "§e§l物理スキルダメージ！";
-        }
-
-        // PvPチェック
-        if (targetLiving instanceof Player && isPvPPrevented(player, targetLiving)) {
-            e.setCancelled(true);
-            return;
-        }
-
-        // メッセージ表示
-        sendLog(player, SHOW_GIVEN_DAMAGE, damageMsgPrefix + " §c+" + Math.round(finalDamage));
-
-        e.setDamage(0.0);
-        applyCustomDamage(targetLiving, finalDamage, player);
     }
 
     // ----------------------------------------------------
@@ -218,16 +108,8 @@ public class DamageManager implements Listener {
         }
 
         long currentTime = System.currentTimeMillis();
-        long iFrameEndTime = iFrameEndTimes.getOrDefault(targetLiving.getUniqueId(), 0L);
 
-        if (currentTime < iFrameEndTime) {
-            e.setCancelled(true);
-            return;
-        }
-
-        if (e.getCause() != EntityDamageEvent.DamageCause.FALL) {
-            iFrameEndTimes.put(targetLiving.getUniqueId(), currentTime + DAMAGE_I_FRAME_MS);
-        }
+        if (isInvulnerable(targetLiving)) { e.setCancelled(true); return; }
 
         if (e.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION ||
                 e.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION) return;
@@ -384,7 +266,7 @@ public class DamageManager implements Listener {
             sendLog(attacker, PlayerSettingsManager.SettingType.SHOW_GIVEN_DAMAGE, "§7遠距離命中 §c+" + Math.round(finalDamage) + " §e[" + String.format("%.0f%%", distMult * 100) + "]");
         }
 
-        applyCustomDamage(targetLiving, finalDamage, attacker);
+        finalizeDamage(targetLiving,finalDamage,attacker, false);
         tryTriggerOnHitSkill(attacker, targetLiving, attacker.getInventory().getItemInMainHand());
 
         if (!isProjectile && isSpearWeapon(attacker.getInventory().getItemInMainHand())) {
@@ -393,103 +275,74 @@ public class DamageManager implements Listener {
         }
     }
 
+    // ----------------------------------------------------
+    // --- リスナー: プレイヤー被弾 (バニラ/環境ダメージ用) ---
+    // ----------------------------------------------------
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerReceivingDamage(EntityDamageEvent e) {
         if (!(e.getEntity() instanceof Player player)) return;
         if (e.isCancelled()) return;
 
-        if (statManager.getActualCurrentHealth(player) <= 0) return;
-
-        long currentTime = System.currentTimeMillis();
-        long iFrameEndTime = iFrameEndTimes.getOrDefault(player.getUniqueId(), 0L);
-        if (currentTime < iFrameEndTime) {
+        // すでにスキル等でダメージ処理済み（無敵時間中）ならキャンセル
+        if (isInvulnerable(player)) {
             e.setCancelled(true);
             return;
         }
 
-        if (e.getCause() != EntityDamageEvent.DamageCause.FALL) {
-            iFrameEndTimes.put(player.getUniqueId(), currentTime + DAMAGE_I_FRAME_MS);
-        }
-
+        StatMap defenderStats = StatManager.getTotalStatsFromEquipment(player);
+        double rawDamage = e.getDamage();
+        double finalDamage;
+        boolean isMagic = false;
         LivingEntity attacker = null;
+
+        // 攻撃者特定
         if (e instanceof EntityDamageByEntityEvent ev) {
             if (ev.getDamager() instanceof LivingEntity le) attacker = le;
             else if (ev.getDamager() instanceof Projectile p && p.getShooter() instanceof LivingEntity le) attacker = le;
-            if (attacker instanceof Player) return;
+            if (attacker instanceof Player) return; // プレイヤー間の攻撃は onPhysicalDamage で処理
         }
-
-        // ★重要: 100%カットを阻止するためにまずBLOCKINGモディファイアをリセット
-        if (e.isApplicable(EntityDamageEvent.DamageModifier.BLOCKING)) {
-            e.setDamage(EntityDamageEvent.DamageModifier.BLOCKING, 0);
-        }
-
-        // ★修正: getFinalDamageではなく、バニラの計算が入る前の getDamage() をベースにする
-        double rawDamage = e.getDamage();
-        StatMap defenderStats = StatManager.getTotalStatsFromEquipment(player);
 
         // 1. 爆発（魔法）処理
-        if (e.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION ||
-                e.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION) {
+        if (e.getCause() == EntityDamageEvent.DamageCause.ENTITY_EXPLOSION || e.getCause() == EntityDamageEvent.DamageCause.BLOCK_EXPLOSION) {
+            finalDamage = applyDefense(rawDamage, defenderStats.getFinal(StatType.MAGIC_RESIST), 100.0);
+            isMagic = true;
+        } else {
+            // 2. モブ攻撃と防御計算
+            double currentDamage = (attacker instanceof Mob) ? applyMobCritLogic(attacker, rawDamage, player) : rawDamage;
+            finalDamage = applyDefense(currentDamage, defenderStats.getFinal(StatType.DEFENSE), 500.0);
 
-            double reduced = applyDefense(rawDamage, defenderStats.getFinal(StatType.MAGIC_RESIST), MAGIC_DEFENSE_DIVISOR);
-            sendLog(player, PlayerSettingsManager.SettingType.SHOW_TAKEN_DAMAGE, "§5§l魔法被弾！ §c" + String.format("%.1f", reduced));
-
-            e.setDamage(0.0);
-            processPlayerDamageWithAbsorption(player, reduced, attacker != null ? attacker.getName() : "魔法");
-            return;
-        }
-
-        // 2. モブ攻撃の基礎ロジック適用
-        double currentDamage = (attacker instanceof Mob) ? handleMobDamageLogic(attacker, rawDamage, player) : rawDamage;
-
-        // 3. 防御力による軽減
-        double finalDamage = applyDefense(currentDamage, defenderStats.getFinal(StatType.DEFENSE), HEAVY_DEFENSE_DIVISOR);
-
-        // 4. ★盾防御の独自計算 (attackerがnullでない場合のみ)
-        if (player.isBlocking() && attacker != null) {
-            // ベクトル計算
-            Vector toAttackerVec = attacker.getLocation().toVector().subtract(player.getLocation().toVector()).normalize();
-            Vector defenderLookVec = player.getLocation().getDirection().normalize();
-
-            if (toAttackerVec.dot(defenderLookVec) > 0.5) {
-                // ステータスに基づいた軽減率
-                double blockRate = defenderStats.getFinal(StatType.SHIELD_BLOCK_RATE);
-                blockRate = Math.max(0.0, Math.min(blockRate, 1.0));
-
-                double blockedDamage = finalDamage * blockRate;
-                finalDamage -= blockedDamage; // ここで初めてダメージを削る
-
-                player.getWorld().playSound(player.getLocation(), Sound.ITEM_SHIELD_BLOCK, 1f, 1f);
-                sendLog(player, PlayerSettingsManager.SettingType.SHOW_MITIGATION, "§b盾防御！ §7軽減: §a" + Math.round(blockedDamage) + " §c(" + Math.round(finalDamage) + "被弾)");
+            // 3. 盾防御
+            if (player.isBlocking() && attacker != null) {
+                Vector toAttacker = attacker.getLocation().toVector().subtract(player.getLocation().toVector()).normalize();
+                if (toAttacker.dot(player.getLocation().getDirection().normalize()) > 0.5) {
+                    double blocked = finalDamage * Math.max(0, Math.min(defenderStats.getFinal(StatType.SHIELD_BLOCK_RATE), 1.0));
+                    finalDamage -= blocked;
+                    player.getWorld().playSound(player.getLocation(), Sound.ITEM_SHIELD_BLOCK, 1f, 1f);
+                }
             }
         }
 
-        if (attacker != null) {
-            Bukkit.getPluginManager().callEvent(new onPlayerRecevingDamageEvent(player, attacker, finalDamage));
-        }
-
-        // バニラのダメージ処理を完全に無効化し、独自のHP処理へ渡す
         e.setDamage(0.0);
-        processPlayerDamageWithAbsorption(player, finalDamage, attacker != null ? attacker.getName() : "環境");
+        finalizeDamage(player, finalDamage, attacker, isMagic);
     }
 
-    private StatMap getDefenderStats(LivingEntity entity) {
+    public StatMap getDefenderStats(LivingEntity entity) {
         if (entity instanceof Player p) {
             return StatManager.getTotalStatsFromEquipment(p);
         }
         return new StatMap();
     }
 
-    private double applyDefense(double damage, double defense, double divisor) {
+    public double applyDefense(double damage, double defense, double divisor) {
         double reduction = defense / (defense + divisor);
         return damage * (1.0 - reduction);
     }
 
-    private boolean rollChance(double chance) {
+    public boolean rollChance(double chance) {
         return (Math.random() * 100) + 1 <= chance;
     }
 
-    private boolean handleUndeadDamage(Player player, LivingEntity target, MythicDamageEvent e) {
+    public boolean handleUndeadDamage(Player player, LivingEntity target) {
         String mobId = MythicBukkit.inst().getMobManager().getActiveMob(target.getUniqueId())
                 .map(am -> am.getMobType()).orElse(null);
 
@@ -498,15 +351,13 @@ public class DamageManager implements Listener {
             sendLog(player, PlayerSettingsManager.SettingType.SHOW_SPECIAL_LOG, "§5§l聖特攻！ §fアンデッドに§5§l50%ダメージ！");
             target.getWorld().playSound(target.getLocation(), Sound.BLOCK_ANVIL_LAND, 1.0f, 0.5f);
 
-            e.setDamage(0.0);
-            e.setCancelled(true);
             applyCustomDamage(target, damage, player);
             return true;
         }
         return false;
     }
 
-    private void handleLifesteal(Player player, LivingEntity target, double baseDamage) {
+    public void handleLifesteal(Player player, LivingEntity target, double baseDamage) {
         double heal = target.getMaxHealth() * (baseDamage / 100.0 / 100.0);
         heal = Math.min(heal, player.getMaxHealth() * 0.20);
 
@@ -567,6 +418,17 @@ public class DamageManager implements Listener {
                 });
     }
 
+    public double applyMobCritLogic(LivingEntity attacker, double damage, Player target) {
+        if (rollChance(20)) {
+            damage *= 1.5;
+            Location loc = target.getLocation().add(0, 1.2, 0);
+            loc.getWorld().spawnParticle(Particle.FLASH, loc, 1, 0, 0, 0, 0, Color.WHITE);
+            loc.getWorld().playSound(loc, Sound.ENTITY_PLAYER_ATTACK_CRIT, 1.2f, 0.8f);
+            sendLog(target, PlayerSettingsManager.SettingType.SHOW_TAKEN_DAMAGE, "§4§l敵のクリティカル！");
+        }
+        return damage;
+    }
+
     private void spawnSpearThrustEffect(Player attacker) {
         Location start = attacker.getEyeLocation();
         Vector dir = start.getDirection().normalize();
@@ -594,6 +456,35 @@ public class DamageManager implements Listener {
         );
     }
 
+    public void finalizeDamage(LivingEntity target, double damage, LivingEntity source, boolean isMagic) {
+        // 無敵時間の付与 (即座に設定して後続のバニライベントを弾く)
+        iFrameEndTimes.put(target.getUniqueId(), System.currentTimeMillis() + DAMAGE_I_FRAME_MS);
+
+        if (target instanceof Player player) {
+            // プレイヤーへの適用
+            processPlayerDamageWithAbsorption(player, damage, source != null ? source.getName() : "魔法/環境");
+
+            // ログ送信
+            String prefix = isMagic ? "§5§l魔法被弾！" : "§c§l物理被弾！";
+            sendLog(player, PlayerSettingsManager.SettingType.SHOW_TAKEN_DAMAGE, prefix + " §c" + Math.round(damage));
+
+            // カスタムイベント呼び出し
+            if (source != null) {
+                Bukkit.getPluginManager().callEvent(new onPlayerRecevingDamageEvent(player, source, damage));
+            }
+        } else {
+            // モブへの適用
+            if (source instanceof Player playerSource) {
+                applyCustomDamage(target, damage, playerSource);
+            } else {
+                target.damage(damage, source);
+            }
+        }
+    }
+
+    public boolean isInvulnerable(LivingEntity entity) {
+        return System.currentTimeMillis() < iFrameEndTimes.getOrDefault(entity.getUniqueId(), 0L);
+    }
 
     public void applyCustomDamage(LivingEntity target, double damage, Player damager) {
         if (target instanceof Player p) {
@@ -675,7 +566,7 @@ public class DamageManager implements Listener {
     }
 
 
-    private double calculateDistanceMultiplier(Player player, LivingEntity targetLiving) {
+    public double calculateDistanceMultiplier(Player player, LivingEntity targetLiving) {
         double distance = targetLiving.getLocation().distance(player.getLocation());
 
         final double MIN_DISTANCE = 10.0;

@@ -6,49 +6,140 @@ import io.lumine.mythic.api.skills.ITargetedEntitySkill;
 import io.lumine.mythic.api.skills.SkillMetadata;
 import io.lumine.mythic.api.skills.SkillResult;
 import io.lumine.mythic.bukkit.BukkitAdapter;
+import org.bukkit.Color;
+import org.bukkit.Location;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
+import org.bukkit.World;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.Vector;
+
+import java.util.Arrays;
+import java.util.List;
 
 public class CustomDamageMechanics implements ITargetedEntitySkill {
-    // MythicLineConfigから読み込むべきカスタム攻撃力（StatType.ATTACK_DAMAGEのFlat値として）
-    protected final int customAttackDamage;
+    protected final double basePower;      // 固定加算値 (d)
+    protected final double multiplier;     // 攻撃力倍率 (m) 例: 1.2
+    protected final String type;           // 属性 (t) MAGIC / PHYSICAL
+    protected final List<String> tags;     // タグ (tg)
+    protected final boolean canCrit;       // クリティカル有無
+    protected final boolean isProjectile;  // 遠距離扱いか (p)
 
     public CustomDamageMechanics(MythicLineConfig config) {
-        // 既存の 'damage' パラメータを ATTACK_DAMAGE の Flat値として読み込む
-        this.customAttackDamage = config.getInteger(new String[] {"damage", "d"}, 10);
+        this.basePower = config.getDouble(new String[]{"damage", "d"}, 10.0);
+        this.multiplier = config.getDouble(new String[]{"multiplier", "m"}, 1.0);
+        this.type = config.getString(new String[]{"type", "t"}, "PHYSICAL").toUpperCase();
+        this.tags = Arrays.asList(config.getString(new String[]{"tags", "tg"}, "").split(","));
+        this.canCrit = config.getBoolean(new String[]{"canCrit", "crit"}, true);
+        this.isProjectile = config.getBoolean(new String[]{"projectile", "p"}, false);
     }
 
     @Override
     public SkillResult castAtEntity(SkillMetadata data, AbstractEntity target) {
-        if (!(data.getCaster().getEntity().getBukkitEntity() instanceof Player player)) {
-            return SkillResult.ERROR; // プレイヤー以外は対象外
-        }
-        LivingEntity bukkitTarget = (LivingEntity) BukkitAdapter.adapt(target);
+        LivingEntity caster = (LivingEntity) data.getCaster().getEntity().getBukkitEntity();
+        if (!(BukkitAdapter.adapt(target) instanceof LivingEntity bukkitTarget)) return SkillResult.INVALID_TARGET;
 
-        // プラグインインスタンスを取得
         Deepwither plugin = Deepwither.getInstance();
-        StatManager statManager = plugin.statManager;
+        DamageManager damageManager = plugin.getDamageManager();
 
-        // 1. 一時バフを作成: ATTACK_DAMAGE の Flat 値としてカスタムダメージを格納
-        StatMap buff = new StatMap();
-        buff.setFlat(StatType.ATTACK_DAMAGE, this.customAttackDamage);
+        // 1. 無敵時間チェック (二重実行防止)
+        if (damageManager.isInvulnerable(bukkitTarget)) {
+            return SkillResult.CONDITION_FAILED;
+        }
 
-        // 2. StatManagerに一時バフを適用
-        statManager.applyTemporaryBuff(player.getUniqueId(), buff);
+        double baseDamage = 0;
+        double finalDamage = 0;
+        boolean isMagic = type.equals("MAGIC");
 
-        // 3. Bukkitのダメージイベントをトリガー（近接攻撃を模倣）
-        //    これにより、DamageManagerの onMeleeDamage が発火する。
-        bukkitTarget.damage(0.01, player); // ダメージ値は0.01など非常に小さく設定（キャンセルされる前提）
+        // 2. 攻撃側（Caster）の計算
+        if (caster instanceof Player player) {
+            StatMap attackerStats = StatManager.getTotalStatsFromEquipment(player);
 
-        // 4. 次のティックでバフを削除: 処理の完了を待つために非同期処理を使用
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                statManager.removeTemporaryBuff(player.getUniqueId());
+            if (isMagic) {
+                baseDamage = (basePower + attackerStats.getFinal(StatType.MAGIC_DAMAGE)) * multiplier;
+                if (tags.contains("BURST")) baseDamage = (baseDamage * 0.4) + attackerStats.getFinal(StatType.MAGIC_BURST_DAMAGE);
+                if (tags.contains("AOE")) baseDamage = (baseDamage * 0.6) + attackerStats.getFinal(StatType.MAGIC_AOE_DAMAGE);
+            } else {
+                double statAtk = isProjectile ? attackerStats.getFinal(StatType.PROJECTILE_DAMAGE) : attackerStats.getFinal(StatType.ATTACK_DAMAGE);
+                double distMult = isProjectile ? damageManager.calculateDistanceMultiplier(player, bukkitTarget) : 1.0;
+                baseDamage = (basePower + statAtk) * multiplier * distMult;
             }
-        }.runTaskLater(plugin, 1L); // 1ティック後に実行
+
+            // クリティカル判定
+            if (canCrit && damageManager.rollChance(attackerStats.getFinal(StatType.CRIT_CHANCE))) {
+                baseDamage *= (attackerStats.getFinal(StatType.CRIT_DAMAGE) / 100.0);
+                playCriticalEffect(bukkitTarget);
+                damageManager.sendLog(player, PlayerSettingsManager.SettingType.SHOW_SPECIAL_LOG, "§6§lクリティカル！");
+            }
+        } else {
+            // モブが攻撃者の場合
+            baseDamage = basePower * multiplier;
+            if (bukkitTarget instanceof Player pTarget) {
+                baseDamage = damageManager.applyMobCritLogic(caster, baseDamage, pTarget);
+            }
+        }
+
+        // 3. 防御側（Target）の計算
+        if (bukkitTarget instanceof Player playerTarget) {
+            StatMap defenderStats = StatManager.getTotalStatsFromEquipment(playerTarget);
+            finalDamage = damageManager.applyDefense(baseDamage,
+                    isMagic ? defenderStats.getFinal(StatType.MAGIC_RESIST) : defenderStats.getFinal(StatType.DEFENSE),
+                    isMagic ? 100.0 : 500.0); // MAGIC_DEFENSE_DIVISOR vs HEAVY_DEFENSE_DIVISOR
+
+            // 盾防御 (物理のみ)
+            if (playerTarget.isBlocking() && !isMagic) {
+                Vector toAttacker = caster.getLocation().toVector().subtract(playerTarget.getLocation().toVector()).normalize();
+                if (toAttacker.dot(playerTarget.getLocation().getDirection().normalize()) > 0.5) {
+                    double blockRate = Math.max(0.0, Math.min(defenderStats.getFinal(StatType.SHIELD_BLOCK_RATE), 1.0));
+                    double blocked = finalDamage * blockRate;
+                    finalDamage -= blocked;
+                    playerTarget.getWorld().playSound(playerTarget.getLocation(), Sound.ITEM_SHIELD_BLOCK, 1f, 1f);
+                    damageManager.sendLog(playerTarget, PlayerSettingsManager.SettingType.SHOW_MITIGATION, "§b盾防御！ §7軽減: §a" + Math.round(blocked));
+                }
+            }
+        } else {
+            // モブがターゲットの場合
+            StatMap defenderStats = damageManager.getDefenderStats(bukkitTarget);
+            finalDamage = damageManager.applyDefense(baseDamage,
+                    isMagic ? defenderStats.getFinal(StatType.MAGIC_RESIST) : defenderStats.getFinal(StatType.DEFENSE),
+                    isMagic ? 100.0 : 100.0);
+        }
+
+        // 4. 特殊タグ処理
+        if (tags.contains("UNDEAD") && caster instanceof Player p) {
+            if (damageManager.handleUndeadDamage(p, bukkitTarget)) return SkillResult.SUCCESS;
+        }
+        if (tags.contains("LIFESTEAL") && caster instanceof Player p) {
+            damageManager.handleLifesteal(p, bukkitTarget, finalDamage);
+        }
+
+        // 5. 最終ダメージ適用 (ここですべての処理を完結させる)
+        finalDamage = Math.max(0.1, finalDamage);
+        damageManager.finalizeDamage(bukkitTarget, finalDamage, caster, isMagic);
 
         return SkillResult.SUCCESS;
+    }
+
+    /**
+     * 元のコードにあった豪華なクリティカル演出をメソッド化
+     */
+    private void playCriticalEffect(LivingEntity target) {
+        Location hitLoc = target.getLocation().add(0, 1.2, 0);
+        World world = hitLoc.getWorld();
+        if (world == null) return;
+
+        // パーティクル演出
+        world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0, Color.WHITE);
+        world.spawnParticle(Particle.SONIC_BOOM, hitLoc, 1, 0, 0, 0, 0);
+        world.spawnParticle(Particle.LAVA, hitLoc, 8, 0.4, 0.4, 0.4, 0.1);
+        world.spawnParticle(Particle.CRIT, hitLoc, 30, 0.5, 0.5, 0.5, 0.5);
+        world.spawnParticle(Particle.LARGE_SMOKE, hitLoc, 15, 0.2, 0.2, 0.2, 0.05);
+
+        // サウンド演出
+        world.playSound(hitLoc, Sound.ENTITY_PLAYER_ATTACK_CRIT, 1.2f, 0.8f);
+        world.playSound(hitLoc, Sound.BLOCK_ANVIL_LAND, 0.6f, 0.5f);
+        world.playSound(hitLoc, Sound.ENTITY_ZOMBIE_ATTACK_IRON_DOOR, 0.8f, 0.6f);
+        world.playSound(hitLoc, Sound.ITEM_TRIDENT_HIT, 1.0f, 0.7f);
     }
 }
