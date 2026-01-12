@@ -357,7 +357,7 @@ public class DamageManager implements Listener {
             // --- 視覚エフェクト: 重層的なパーティクル ---
 
             // 1. 強烈な閃光 (中心)
-            //world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0);
+            world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0,Color.WHITE);
 
             // 2. 衝撃波 (周囲に広がる空気の歪み)
             world.spawnParticle(Particle.SONIC_BOOM, hitLoc, 1, 0, 0, 0, 0);
@@ -528,7 +528,7 @@ public class DamageManager implements Listener {
             // --- 視覚エフェクト: エラーの起きにくい構成 ---
 
             // 1. 強烈な閃光
-            //world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0);
+            world.spawnParticle(Particle.FLASH, hitLoc, 1, 0, 0, 0, 0,Color.WHITE);
 
             // 2. 衝撃波
             world.spawnParticle(Particle.SONIC_BOOM, hitLoc, 1, 0, 0, 0, 0);
@@ -536,14 +536,7 @@ public class DamageManager implements Listener {
             // 3. 演出（LAVAとCRITはColorデータ不要なので安全）
             world.spawnParticle(Particle.LAVA, hitLoc, 8, 0.4, 0.4, 0.4, 0.1);
             world.spawnParticle(Particle.CRIT, hitLoc, 30, 0.5, 0.5, 0.5, 0.5);
-            // java.lang.IllegalArgumentException を防ぐための正しい記述例:
-        /*
-        org.bukkit.Particle.DustOptions blood = new org.bukkit.Particle.DustOptions(org.bukkit.Color.RED, 1.5F);
-        world.spawnParticle(Particle.DUST, hitLoc, 20, 0.2, 0.2, 0.2, blood);
-        */
             // 4. ダメージの重みを出す追加エフェクト (BLOCK_MARKER等を使う場合は注意が必要)
-            // もし色付きの「血」を出したい場合は、以下のように記述する必要があります
-
 
             // 5. 煙
             world.spawnParticle(Particle.LARGE_SMOKE, hitLoc, 15, 0.2, 0.2, 0.2, 0.05);

@@ -222,11 +222,12 @@ public class AnimationListener implements Listener {
         // 3. 地面への衝撃波 (横方向の広がり)
         // 視界の邪魔にならない足元に、破片とフラッシュを出す
         entity.getWorld().spawnParticle(
-                Particle.FLASH, // 一瞬光るが、煙を残さないので視界を遮らない
+                Particle.FLASH,
                 impactLoc.clone().add(0, 0.1, 0),
-                1,
-                0, 0, 0,
-                0
+                1,               // 個数
+                0, 0, 0,         // オフセット
+                0,               // 速度/extra
+                Color.WHITE      // 【✅ 追加】ここにColorを指定（白が標準的）
         );
 
         // 叩きつけた際の土煙/石片
