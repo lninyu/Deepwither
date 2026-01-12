@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 public class ClanCommand implements CommandExecutor, TabCompleter {
 
     private final ClanManager clanManager;
-    private final List<String> subCommands = Arrays.asList("create", "invite", "join", "info", "leave");
+    private final List<String> subCommands = Arrays.asList("create", "invite", "join", "info", "leave", "disband");
 
     public ClanCommand(ClanManager clanManager) {
         this.clanManager = clanManager;
@@ -66,10 +66,8 @@ public class ClanCommand implements CommandExecutor, TabCompleter {
                     player.sendMessage("§7メンバー数: " + clan.getMembers().size());
                 }
             }
-            case "leave" -> {
-                // 脱退処理の実装が必要
-                player.sendMessage("§c未実装: 脱退機能");
-            }
+            case "leave" -> clanManager.leaveClan(player);
+            case "disband" -> clanManager.disbandClan(player);
             default -> sendHelp(player);
         }
 
@@ -108,5 +106,7 @@ public class ClanCommand implements CommandExecutor, TabCompleter {
         player.sendMessage("§f/clan invite <player> §7- プレイヤーを招待");
         player.sendMessage("§f/clan join §7- 招待を受ける");
         player.sendMessage("§f/clan info §7- 所属クランの情報");
+        player.sendMessage("§f/clan leave §7- クランを脱退");
+        player.sendMessage("§f/clan disband §7- クランを解散（リーダー用）");
     }
 }

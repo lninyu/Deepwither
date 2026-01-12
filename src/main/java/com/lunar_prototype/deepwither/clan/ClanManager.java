@@ -73,6 +73,58 @@ public class ClanManager implements IManager {
     }
 
     /**
+     * プレイヤーがクランから脱退する
+     */
+    public void leaveClan(Player player) {
+        Clan clan = getClanByPlayer(player.getUniqueId());
+        if (clan == null) {
+            player.sendMessage("§cクランに所属していません。");
+            return;
+        }
+
+        // リーダーは脱退できない（解散するかリーダー譲渡が必要）
+        if (clan.getOwner().equals(player.getUniqueId())) {
+            player.sendMessage("§cリーダーは脱退できません。解散するには /clan disband を使用してください。");
+            return;
+        }
+
+        // メモリからの削除
+        clan.removeMember(player.getUniqueId());
+        playerClanMap.remove(player.getUniqueId());
+
+        // データベースからの削除
+        deleteMemberFromDatabase(player.getUniqueId());
+
+        player.sendMessage("§aクラン " + clan.getName() + " から脱退しました。");
+        clan.broadcast("§e" + player.getName() + " がクランを脱退しました。");
+    }
+
+    /**
+     * クランを解散する（リーダーのみ）
+     */
+    public void disbandClan(Player leader) {
+        Clan clan = getClanByPlayer(leader.getUniqueId());
+        if (clan == null || !clan.getOwner().equals(leader.getUniqueId())) {
+            leader.sendMessage("§cクランリーダーのみが解散できます。");
+            return;
+        }
+
+        String clanName = clan.getName();
+        String clanId = clan.getId();
+
+        // 所属メンバー全員のキャッシュをクリア
+        for (UUID memberUuid : clan.getMembers()) {
+            playerClanMap.remove(memberUuid);
+        }
+        clans.remove(clanId);
+
+        // データベースからクラン本体と全メンバーを削除
+        deleteClanFromDatabase(clanId);
+
+        leader.sendMessage("§aクラン " + clanName + " を解散しました。");
+    }
+
+    /**
      * クランへの招待を送る
      * 永続化の必要がない一時的なメモリデータとして管理します
      */
@@ -141,6 +193,30 @@ public class ClanManager implements IManager {
                 "INSERT INTO clan_members (player_uuid, clan_id) VALUES (?, ?) ON CONFLICT(player_uuid) DO UPDATE SET clan_id=excluded.clan_id")) {
             ps.setString(1, uuid.toString());
             ps.setString(2, clanId);
+            ps.executeUpdate();
+        } catch (SQLException e) { e.printStackTrace(); }
+    }
+
+    private void deleteMemberFromDatabase(UUID uuid) {
+        try (PreparedStatement ps = db.getConnection().prepareStatement(
+                "DELETE FROM clan_members WHERE player_uuid = ?")) {
+            ps.setString(1, uuid.toString());
+            ps.executeUpdate();
+        } catch (SQLException e) { e.printStackTrace(); }
+    }
+
+    private void deleteClanFromDatabase(String clanId) {
+        try (PreparedStatement ps = db.getConnection().prepareStatement(
+                "DELETE FROM clans WHERE id = ?")) {
+            ps.setString(1, clanId);
+            ps.executeUpdate();
+        } catch (SQLException e) { e.printStackTrace(); }
+
+        // SQLiteの外部キー制約 (ON DELETE CASCADE) が設定されている場合、
+        // clan_members も自動で消えますが、念のため明示的に消すことも可能です。
+        try (PreparedStatement ps = db.getConnection().prepareStatement(
+                "DELETE FROM clan_members WHERE clan_id = ?")) {
+            ps.setString(1, clanId);
             ps.executeUpdate();
         } catch (SQLException e) { e.printStackTrace(); }
     }
