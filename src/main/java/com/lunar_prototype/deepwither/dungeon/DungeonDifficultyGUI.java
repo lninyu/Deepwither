@@ -8,16 +8,22 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class DungeonDifficultyGUI implements Listener {
     private final String dungeonId;
     private final FileConfiguration config;
-    private static final String CUSTOM_ID_KEY = "custom_item_id"; // 仮定
+    private static final String CUSTOM_ID_KEY = "custom_id"; // 仮定
 
     public DungeonDifficultyGUI(String dungeonId, FileConfiguration config) {
         this.dungeonId = dungeonId;
@@ -32,6 +38,7 @@ public class DungeonDifficultyGUI implements Listener {
         // 高難易度モードのアイコン設定
         gui.setItem(15, createIcon(Material.NETHERITE_SWORD, "§c高難易度モード", "§7推奨レベル: " + config.getInt("difficulty.hard.mob_level"), "§e要: 専用の鍵"));
 
+        Bukkit.getPluginManager().registerEvents(this, Deepwither.getInstance());
         player.openInventory(gui);
     }
 
@@ -55,6 +62,13 @@ public class DungeonDifficultyGUI implements Listener {
         }
     }
 
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (event.getView().getTitle().equals("難易度を選択: " + dungeonId)) {
+            HandlerList.unregisterAll(this);
+        }
+    }
+
     private boolean checkAndConsumeKey(Player player) {
         String requiredKey = config.getString("difficulty.hard.key_id");
         NamespacedKey key = new NamespacedKey(Deepwither.getInstance(), CUSTOM_ID_KEY);
@@ -73,6 +87,25 @@ public class DungeonDifficultyGUI implements Listener {
 
     private void startDungeon(Player player, String difficulty) {
         player.closeInventory();
+        HandlerList.unregisterAll(this);
         DungeonInstanceManager.getInstance().createDungeonInstance(player, dungeonId, difficulty);
+    }
+
+    /**
+     * GUI用アイコン作成ヘルパーメソッド
+     */
+    private ItemStack createIcon(Material material, String name, String... loreLines) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(name);
+            List<String> lore = new ArrayList<>();
+            for (String line : loreLines) {
+                lore.add(line);
+            }
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 }

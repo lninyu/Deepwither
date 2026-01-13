@@ -73,7 +73,7 @@ public class DeepwitherCommand implements CommandExecutor, TabCompleter {
                 }
                 String dungeonType = args[2];
                 com.lunar_prototype.deepwither.dungeon.instance.DungeonInstanceManager.getInstance()
-                        .createInstance(player, dungeonType);
+                        .createDungeonInstance(player, dungeonType,"normal");
             }
             case "join" -> {
                 if (!player.hasPermission("deepwither.admin")) {
