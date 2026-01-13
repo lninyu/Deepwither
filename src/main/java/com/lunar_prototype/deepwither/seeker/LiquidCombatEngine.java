@@ -301,6 +301,35 @@ public class LiquidCombatEngine {
             // 未来期待値計算 (機能維持のためString名を渡すが、内部は量子化を推奨)
             double expectation = evaluateTimeline(candidateIdx, brain, target, bukkitEntity, globalWeakness);
 
+            // =========================================================
+            // [追加] 戦術的退屈 (Tactical Boredom) & スパム防止
+            // =========================================================
+            // 前回と同じ行動を選ぼうとしている場合、期待値にペナルティを与える
+            if (candidateIdx == brain.lastActionIdx) {
+                String actionName = ACTIONS[candidateIdx];
+                float penaltyMultiplier = 1.0f;
+
+                // 連続回数に応じてペナルティを指数関数的に増やす
+                // 1回目: 小ペナルティ, 2回目: 中ペナルティ, 3回目以降: 特大ペナルティ
+                int repeat = brain.actionRepeatCount;
+
+                // 強行動(BURST_DASH等)は飽きやすくする (理不尽感の軽減)
+                if (actionName.equals("BURST_DASH") || actionName.equals("OVERWHELM")) {
+                    // 期待値をガッツリ削る (例: 2回目でスコア半減、3回目でマイナス評価)
+                    penaltyMultiplier = (float) Math.pow(0.6, repeat);
+                    expectation -= (repeat * 1.5); // 固定値でも引いておく
+                } else {
+                    // 通常移動などは緩やかに
+                    penaltyMultiplier = (float) Math.pow(0.9, repeat);
+                }
+
+                // 正のスコアなら係数を掛けて減らす
+                if (expectation > 0) {
+                    expectation *= penaltyMultiplier;
+                }
+            }
+            // =========================================================
+
             if (expectation > bestExpectation) {
                 bestExpectation = (float) expectation;
                 bestAIdx = candidateIdx;
@@ -345,6 +374,13 @@ public class LiquidCombatEngine {
                 case "ORBITAL_SLIDE" -> d.movement.strategy = "ORBITAL_SLIDE";
                 default -> d.movement.strategy = "MAINTAIN_DISTANCE";
             }
+        }
+
+        // 最終更新の直前でカウンターを処理
+        if (bestAIdx == brain.lastActionIdx) {
+            brain.actionRepeatCount++; // 同じ行動ならカウントアップ
+        } else {
+            brain.actionRepeatCount = 0; // 違う行動ならリセット
         }
 
         // 最終更新

@@ -15,6 +15,8 @@ public class LiquidBrain {
     public double patience = 1.0;
     public float frustration = 0.0f;
 
+    public int actionRepeatCount = 0;
+
     // 量子化エンジン用フィールド
     public int lastStateIdx = 0;
     public int lastActionIdx = 4; // Default: OBSERVE
