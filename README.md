@@ -54,17 +54,16 @@ Deepwither 最新版は、従来のニューラルネットワークの限界を
 * **自己責任:** 本プラグインの利用により生じた損害について、開発者は一切の責任を負いません。
 * **コミットメッセージ:** AIによって自動生成されているため、内容の正確性を保証するものではありません。
 
-## :bug: バグ・脆弱性の報告 (Reporting Issues)
+## 🐛 バグ・脆弱性の報告 (Reporting Issues)
 
 プロジェクトの品質向上のため、問題の報告は歓迎いたします。
 
 ### バグ報告
-
-[GitHub Issues](https://github.com/RuskServer/Deepwither/issues) へ詳細を投稿してください。
+プログラムの不具合を発見した場合は、[GitHub Issues](https://github.com/RuskServer/Deepwither/issues) へ詳細を投稿してください。
+※個別の返信や修正時期の確約はいたしかねますのでご了承ください。
 
 ### 脆弱性の報告
-
-[リポジトリのSecurityタブ](https://github.com/RuskServer/Deepwither/security) からお知らせください。
+セキュリティ上の重大な欠陥（脆弱性）を発見された場合は、Issueに公開せず、[リポジトリのSecurityタブ](https://github.com/RuskServer/Deepwither/security) からお知らせください。
 
 ---
 
