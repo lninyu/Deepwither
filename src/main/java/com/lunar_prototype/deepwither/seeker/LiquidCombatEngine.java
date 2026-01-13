@@ -207,12 +207,12 @@ public class LiquidCombatEngine {
     private BanditDecision thinkV2Optimized(BanditContext context, LiquidBrain brain, Mob bukkitEntity) {
         // 1. 基底となるV1ロジックの呼び出し (量子化版)
         BanditDecision d = thinkV1Optimized(context, brain, bukkitEntity);
-        d.engine_version = "v3.0-DSR-Quantized";
+        d.engine_version = "v3.1-Elastic-DSR";
 
-        // --- [新理論実装] 脳の構造的再編 (DSR) ---
+        // --- [新理論実装] 脳の構造的再編 (DSR/AM-QL) ---
         // 思考を開始する前に、現在のアドレナリンやフラストレーションに基づき脳回路を組み替える
         brain.reshapeTopology();
-        // 経験の消化（ニューロンの更新）もここで行い、最新の状態を反映
+        // 経験の消化（ニューロンの更新 & 疲労の代謝）もここで行い、最新の状態を反映
         brain.digestExperience();
 
         brain.updateTacticalAdvantage();
@@ -253,7 +253,8 @@ public class LiquidCombatEngine {
                 bukkitEntity.setTarget(bestPlayer);
                 d.reasoning += " | TGT_SWITCH:" + bestPlayer.getName();
                 if (maxScore > 25.0f && brain.lastStateIdx != -1) {
-                    brain.qTable.update(brain.lastStateIdx, 0, 0.1f, brain.lastStateIdx);
+                    // 新仕様: 学習更新にも疲労度（この場合は0）を考慮
+                    brain.qTable.update(brain.lastStateIdx, 0, 0.1f, brain.lastStateIdx, 0.0f);
                 }
             }
         }
@@ -279,7 +280,7 @@ public class LiquidCombatEngine {
 
         boolean isRecovering = (brain.selfPattern.averageInterval > 0 && (bukkitEntity.getTicksLived() - brain.selfPattern.lastAttackTick) < 15);
 
-        // --- 3. 動的 Epsilon-Greedy & 量子化状態パッキング ---
+        // --- 3. Elastic Action Selection & 量子化状態パッキング ---
         float hpPct = (float) context.entity.hp_pct / 100.0f;
         int stateIdx = brain.qTable.packState(advantage, enemyDist, hpPct, isRecovering, enemies.size());
 
@@ -290,11 +291,16 @@ public class LiquidCombatEngine {
         int visionCount = (brain.composure > 0.7) ? 3 : (brain.composure > 0.3 ? 2 : 1);
 
         for (int i = 0; i < visionCount; i++) {
-            int candidateIdx = (i == 0) ? brain.qTable.getBestActionIdx(stateIdx)
+            // [新仕様] QTableから疲労度を加味した実質的なベストアクション候補を取得
+            int candidateIdx = (i == 0) ? brain.qTable.getBestActionIdx(stateIdx, brain.fatigueMap)
                     : ThreadLocalRandom.current().nextInt(ACTIONS.length);
 
-            // 未来期待値計算 (DSRによって内部のニューロン結合が動的に変化している)
+            // 未来期待値計算
             double expectation = evaluateTimeline(candidateIdx, brain, target, bukkitEntity, globalWeakness);
+
+            // [Elastic] 活動電位疲労による期待値の動的減衰
+            float fatigue = brain.fatigueMap[candidateIdx];
+            expectation -= (fatigue * 2.0); // alpha=2.0
 
             // 戦術的分野：スパム防止 (Tactical Boredom)
             if (candidateIdx == brain.lastActionIdx) {
@@ -322,7 +328,7 @@ public class LiquidCombatEngine {
         String recommendedAction = ACTIONS[bestAIdx];
 
         if (brain.adrenaline > 0.85f && reflexIntensity > 0.7f) {
-            // 【サージバイパス発動】 Q学習の結果を「本能(DSR経路)」が上書き
+            // 【サージバイパス発動】 疲労を焼き切り本能(DSR経路)が上書き
             d.decision.action_type = "OVERWHELM";
             d.movement.strategy = "BURST_DASH";
             d.reasoning += " | DSR_BYPASS:SURGE";
@@ -345,6 +351,8 @@ public class LiquidCombatEngine {
                 case "ORBITAL_SLIDE" -> d.movement.strategy = "ORBITAL_SLIDE";
                 default -> d.movement.strategy = "MAINTAIN_DISTANCE";
             }
+            // 疲労が選択に影響している場合のデバッグ
+            if (brain.fatigueMap[bestAIdx] > 0.4f) d.reasoning += " | ELASTIC:FATIGUED";
         }
 
         // 最終更新処理
@@ -409,13 +417,13 @@ public class LiquidCombatEngine {
         if (totalProcessReward > 0) {
             // update(stateIdx, actionIdx, reward, nextStateIdx)
             // ここでは便宜上 nextState を現在と同じに設定
-            brain.qTable.update(brain.lastStateIdx, brain.lastActionIdx, totalProcessReward, brain.lastStateIdx);
+            brain.qTable.update(brain.lastStateIdx, brain.lastActionIdx, totalProcessReward, brain.lastStateIdx,brain.fatigueMap[brain.lastActionIdx]);
             d.reasoning += " | RWD: " + rewardDebug.toString();
         }
     }
 
     private double evaluateTimeline(int actionIdx, LiquidBrain brain, Player target, Mob self, String globalWeakness) {
-        float qValue = brain.qTable.getQ(brain.lastStateIdx, actionIdx);
+        float qValue = brain.qTable.getQ(brain.lastStateIdx, actionIdx,brain.fatigueMap[brain.lastActionIdx]);
         float score = qValue;
 
         // 現在の座標と時間
@@ -548,20 +556,6 @@ public class LiquidCombatEngine {
         int bestActionIdx = 4; // Default: OBSERVE
         float maxExpectation = -Float.MAX_VALUE;
 
-        for (int i = 0; i < visionCount; i++) {
-            // インデックスベースでの候補選定
-            int candidateIdx = (i == 0) ? brain.qTable.getBestActionIdx(stateIdx)
-                    : ThreadLocalRandom.current().nextInt(ACTIONS.length);
-
-            // 未来報酬評価 (evaluateV3TimelineOptimized)
-            float expectation = evaluateV3TimelineOptimized(candidateIdx, stateIdx, brain, target, dotProduct, isSurging);
-
-            if (expectation > maxExpectation) {
-                maxExpectation = expectation;
-                bestActionIdx = candidateIdx;
-            }
-        }
-
         // 6. 意思決定の適用
         //applyTacticalBranchV3(d, ACTIONS[bestActionIdx], (double)advantage, (double)globalFear, isSurging, globalWeakness, enemies.size());
 
@@ -580,32 +574,6 @@ public class LiquidCombatEngine {
         if (isSurging) d.reasoning += " | !!! SURGE !!!";
 
         return d;
-    }
-
-    /**
-     * v3専用：未来予測スコアリング (量子化・高速版)
-     */
-    private float evaluateV3TimelineOptimized(int actionIdx, int sIdx, LiquidBrain brain, Player target, float dotProduct, boolean isSurging) {
-        float score = brain.qTable.getQ(sIdx, actionIdx);
-
-        // A. 【死角報酬】 dotProduct 0.17(80度) 〜 0.76(40度) の範囲を高く評価
-        // プレイヤーの画面端付近を維持する動きへのバイアス
-        if (dotProduct > 0.17f && dotProduct < 0.76f) {
-            if (actionIdx == 7 || actionIdx == 1) score += 0.5f; // ORBITAL_SLIDE or EVADE
-        }
-
-        // B. 【サージ・バイアス】
-        if (isSurging) {
-            if (actionIdx == 0 || actionIdx == 6) score += 2.0f; // ATTACK or BURST_DASH
-            if (actionIdx == 5) score -= 5.0f; // RETREAT
-        }
-
-        // C. 【カオス予測】背後(dot < 0)からの急接近
-        if (actionIdx == 6 && dotProduct < 0) {
-            score += 0.7f;
-        }
-
-        return score;
     }
 
     /**
@@ -639,7 +607,7 @@ public class LiquidCombatEngine {
         }
 
         if (processReward > 0) {
-            brain.qTable.update(brain.lastStateIdx, brain.lastActionIdx, processReward, brain.lastStateIdx);
+            //brain.qTable.update(brain.lastStateIdx, brain.lastActionIdx, processReward, brain.lastStateIdx);
             d.reasoning += " | RWD: " + debugRwd.toString();
         }
     }

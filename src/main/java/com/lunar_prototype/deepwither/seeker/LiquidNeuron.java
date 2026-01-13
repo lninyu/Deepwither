@@ -34,14 +34,20 @@ public class LiquidNeuron {
     }
 
     public void update(double input, double urgency) {
-        // 外部入力に加えて、接続されている他のニューロンからの伝達信号を合算
         float synapticInput = (float) input;
+
+        // 他のニューロンからの信号を重み付きで加算
+        // これが AM-QL における「構造が機能（計算結果）を変える」核心部
         for (Map.Entry<LiquidNeuron, Float> entry : synapses.entrySet()) {
             synapticInput += (float) (entry.getKey().get() * entry.getValue());
         }
 
+        // urgency(緊急度)に応じてtauが変動し、反応が「サラサラ」になる
         float alpha = baseDecay + ((float)urgency * (1.0f - baseDecay));
-        this.state += alpha * ((float)input - this.state);
+
+        // 入力を synapticInput に差し替えて状態を更新
+        this.state += alpha * (synapticInput - this.state);
+
         if (this.state > 1.0f) this.state = 1.0f;
         else if (this.state < 0.0f) this.state = 0.0f;
     }

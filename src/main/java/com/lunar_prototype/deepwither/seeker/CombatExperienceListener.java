@@ -179,7 +179,7 @@ public class CombatExperienceListener implements Listener {
 
             // 4. 量子化Q-Update (Stringキーを生成せず、intのまま流し込む)
             if (brain.lastStateIdx >= 0 && brain.lastActionIdx >= 0) {
-                brain.qTable.update(brain.lastStateIdx, brain.lastActionIdx, reward, nextStateIdx);
+                brain.qTable.update(brain.lastStateIdx, brain.lastActionIdx, reward, nextStateIdx,brain.fatigueMap[brain.lastActionIdx]);
             }
         });
     }

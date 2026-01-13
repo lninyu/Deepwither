@@ -98,7 +98,7 @@ public class SeekerAIEngine {
                 if (peerSIdx >= 0 && peerAIdx >= 0) {
                     // オフポリス学習：仲間が成功した行動を自分のQ-Tableに 0.05f の報酬として統合
                     // 直接 update を呼ぶことで、Stringキー生成を完全に回避
-                    myBrain.qTable.update(peerSIdx, peerAIdx, 0.05f, peerSIdx);
+                    myBrain.qTable.update(peerSIdx, peerAIdx, 0.05f, peerSIdx,myBrain.fatigueMap[myBrain.lastActionIdx]);
                 }
             }
 

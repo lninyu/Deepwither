@@ -17,6 +17,12 @@ public class LiquidBrain {
 
     public int actionRepeatCount = 0;
 
+    // --- [新実装] Elastic Q-Learning: 活動電位疲労 Ft(a) ---
+    // 行動の「飽き」を管理する配列 (ACTIONS[8]に対応)
+    public final float[] fatigueMap = new float[8];
+    private static final float FATIGUE_STRESS = 0.15f; // 1回使うごとの蓄積疲労
+    private static final float FATIGUE_DECAY = 0.95f;  // 非選択時の回復率
+
     // 前回予測した「20Tick後の座標」
     public Vector lastPredictedLocation = null;
     public long lastPredictionTick = 0;
@@ -45,32 +51,38 @@ public class LiquidBrain {
             return (a << 7) | (d << 5) | (h << 3) | (r << 2) | c;
         }
 
-        public float getQ(int sIdx, int aIdx) {
-            return data[(sIdx << 3) | aIdx];
+        public float getQ(int sIdx, int aIdx,float fatigue) {
+            float baseQ = data[(sIdx << 3) | aIdx];
+            float alpha = 2.0f; // 疲労の重み（性格パラメータ）
+            return baseQ - (alpha * fatigue);
         }
 
-        public int getBestActionIdx(int sIdx) {
+        public int getBestActionIdx(int sIdx, float[] currentFatigue) {
             int best = 0;
-            float maxQ = -Float.MAX_VALUE;
-            int base = sIdx << 3;
+            float maxEffectiveQ = -Float.MAX_VALUE;
             for (int i = 0; i < 8; i++) {
-                if (data[base | i] > maxQ) {
-                    maxQ = data[base | i];
+                float eq = getQ(sIdx, i, currentFatigue[i]);
+                if (eq > maxEffectiveQ) {
+                    maxEffectiveQ = eq;
                     best = i;
                 }
             }
             return best;
         }
 
-        public void update(int sIdx, int aIdx, float reward, int nextSIdx) {
+        public void update(int sIdx, int aIdx, float reward, int nextSIdx, float fatigue) {
             int idx = (sIdx << 3) | aIdx;
+
+            // [新理論] 弾性学習: 疲労している行動への報酬を抑制（当たり前化）
+            float elasticity = 1.0f - Math.min(0.5f, fatigue);
+            float adjustedReward = reward * elasticity;
+
             float maxNextQ = -1.0f;
             int nextBase = nextSIdx << 3;
             for (int i = 0; i < 8; i++) {
-                float q = data[nextBase | i];
-                if (q > maxNextQ) maxNextQ = q;
+                if (data[nextBase | i] > maxNextQ) maxNextQ = data[nextBase | i];
             }
-            data[idx] += 0.2f * (reward + 0.9f * maxNextQ - data[idx]);
+            data[idx] += 0.2f * (adjustedReward + 0.9f * maxNextQ - data[idx]);
         }
     }
 
@@ -159,30 +171,25 @@ public class LiquidBrain {
      * [新理論] 脳の構造的トポロジーを現在の状況に合わせて再編する
      * 従来のAIにはない「物理的な脳の作り変え」を再現
      */
+    /**
+     * [改良] AM-QL: 構造的再編の強化
+     */
     public void reshapeTopology() {
-        // 1. 回路の初期化（基本接続以外をリセット）
         clearTemporarySynapses();
 
-        if (adrenaline > 0.8f) {
-            // 【サージ状態: 戦闘バイパス形成】
-            // 恐怖(fear)から戦術(tactical)への接続を遮断し、
-            // 攻撃性(aggression)から反射(reflex)へ直接信号を流すバイパスを形成
-            // これにより「迷わず最短距離で殴る」脳構造に変形
+        if (adrenaline > 0.85f) {
+            // 【DSR_BYPASS: SURGE】 思考をショートカットして反射層へ直結
             aggression.connect(reflex, 1.5f);
-            dramaticStructureChangeEffect(); // 視覚演出フラグ等
-        }
-
-        if (frustration > 0.7f) {
-            // 【フラストレーション: 乱数回路の強化】
-            // 単調さを打破するため、戦術回路にノイズ（不安定なフィードバック）を混入
-            reflex.connect(tactical, -0.5f); // 既存の冷静な判断を抑制
-        }
-
-        if (composure > 0.9f) {
-            // 【極限の集中: 精密演算モード】
-            // 全てのニューロンが tactical に情報を集約する構造へ
+            // 疲労の影響を一時的に無視する「リミッター解除」フラグ（演出用）
+        } else if (composure > 0.7f) {
+            // 【精密演算モード】 戦術層への集中
             aggression.connect(tactical, 0.5f);
             fear.connect(tactical, 0.5f);
+        }
+
+        if (frustration > 0.6f) {
+            // フラストレーションによるノイズ混入
+            reflex.connect(tactical, -0.4f);
         }
     }
 
@@ -199,7 +206,23 @@ public class LiquidBrain {
         this.accumulatedReward += 0.01f; // 構造変化自体に微小な期待値を与える
     }
 
+    /**
+     * [改良] 経験消化と疲労回復の同期
+     */
     public void digestExperience() {
+        // QTableの学習更新 (疲労度を引数に追加)
+        qTable.update(lastStateIdx, lastActionIdx, accumulatedReward - accumulatedPenalty, 0, fatigueMap[lastActionIdx]);
+
+        // [Elastic] 疲労の代謝
+        for (int i = 0; i < fatigueMap.length; i++) {
+            if (i == lastActionIdx) {
+                fatigueMap[i] += FATIGUE_STRESS; // 使用した行動は疲労
+            } else {
+                fatigueMap[i] *= FATIGUE_DECAY;  // 未使用の行動は回復
+            }
+        }
+
+        // 既存の神経更新
         if (accumulatedReward > 0) {
             aggression.update(1.0f, accumulatedReward * 0.5f);
             fear.update(0.0f, accumulatedReward * 0.2f);
@@ -211,7 +234,8 @@ public class LiquidBrain {
             fear.update(1.0f, accumulatedPenalty * fearWeight);
             adrenaline = Math.min(1.0f, adrenaline + (accumulatedPenalty * 0.2f));
         }
+
         accumulatedReward = 0; accumulatedPenalty = 0;
-        reshapeTopology();
+        reshapeTopology(); // 脳構造の更新
     }
 }
