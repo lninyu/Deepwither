@@ -207,7 +207,13 @@ public class LiquidCombatEngine {
     private BanditDecision thinkV2Optimized(BanditContext context, LiquidBrain brain, Mob bukkitEntity) {
         // 1. 基底となるV1ロジックの呼び出し (量子化版)
         BanditDecision d = thinkV1Optimized(context, brain, bukkitEntity);
-        d.engine_version = "v2.7-Quantized";
+        d.engine_version = "v3.0-DSR-Quantized";
+
+        // --- [新理論実装] 脳の構造的再編 (DSR) ---
+        // 思考を開始する前に、現在のアドレナリンやフラストレーションに基づき脳回路を組み替える
+        brain.reshapeTopology();
+        // 経験の消化（ニューロンの更新）もここで行い、最新の状態を反映
+        brain.digestExperience();
 
         brain.updateTacticalAdvantage();
         float advantage = (float) brain.tacticalMemory.combatAdvantage;
@@ -224,21 +230,14 @@ public class LiquidCombatEngine {
             BanditContext.EnemyInfo enemy = enemies.get(i);
             float score = 0.0f;
 
-            // A. 距離スコア
-            score += (20.0f - (float) enemy.dist) * 1.0f;
-
-            // B. 低HP優先スコア
+            score += (20.0f - (float) enemy.dist) * 1.0f; // 距離
             if (enemy.playerInstance instanceof Player p) {
                 float hpRatio = (float) (p.getHealth() / p.getMaxHealth());
-                score += (1.0f - hpRatio) * 15.0f;
+                score += (1.0f - hpRatio) * 15.0f; // 低HP優先
             }
-
-            // C. 視界スコア
-            if (enemy.in_sight) score += 5.0f;
-
-            // D. ターゲット維持バイアス (UUID比較)
+            if (enemy.in_sight) score += 5.0f; // 視界
             if (currentTarget != null && enemy.playerInstance.getUniqueId().equals(currentTarget.getUniqueId())) {
-                score += 8.0f;
+                score += 8.0f; // ターゲット維持バイアス
             }
 
             if (score > maxScore) {
@@ -253,10 +252,7 @@ public class LiquidCombatEngine {
             if (currentTarget == null || !bestPlayer.getUniqueId().equals(currentTarget.getUniqueId())) {
                 bukkitEntity.setTarget(bestPlayer);
                 d.reasoning += " | TGT_SWITCH:" + bestPlayer.getName();
-
-                // 評価値が高いターゲットへの切り替え報酬 (量子化QTableへのフィードバック)
                 if (maxScore > 25.0f && brain.lastStateIdx != -1) {
-                    // "TARGET_SELECT" は便宜上アクションINDEX 0番等にマッピングするか、専用報酬処理へ
                     brain.qTable.update(brain.lastStateIdx, 0, 0.1f, brain.lastStateIdx);
                 }
             }
@@ -265,7 +261,7 @@ public class LiquidCombatEngine {
         Player target = (Player) bukkitEntity.getTarget();
         if (target == null) return d;
 
-        // --- 集合知プロファイルの参照 (量子化数値) ---
+        // 集合知プロファイル
         float globalFear = (float) CollectiveKnowledge.getDangerLevel(target.getUniqueId());
         String globalWeakness = CollectiveKnowledge.getGlobalWeakness(target.getUniqueId());
 
@@ -290,45 +286,23 @@ public class LiquidCombatEngine {
         int bestAIdx = -1;
         float bestExpectation = -999.0f;
 
-        // シミュレーション回数
+        // シミュレーション回数 (冷静さによって分岐)
         int visionCount = (brain.composure > 0.7) ? 3 : (brain.composure > 0.3 ? 2 : 1);
 
         for (int i = 0; i < visionCount; i++) {
-            // インデックスベースで候補を取得
             int candidateIdx = (i == 0) ? brain.qTable.getBestActionIdx(stateIdx)
                     : ThreadLocalRandom.current().nextInt(ACTIONS.length);
 
-            // 未来期待値計算 (機能維持のためString名を渡すが、内部は量子化を推奨)
+            // 未来期待値計算 (DSRによって内部のニューロン結合が動的に変化している)
             double expectation = evaluateTimeline(candidateIdx, brain, target, bukkitEntity, globalWeakness);
 
-            // =========================================================
-            // [追加] 戦術的退屈 (Tactical Boredom) & スパム防止
-            // =========================================================
-            // 前回と同じ行動を選ぼうとしている場合、期待値にペナルティを与える
+            // 戦術的分野：スパム防止 (Tactical Boredom)
             if (candidateIdx == brain.lastActionIdx) {
                 String actionName = ACTIONS[candidateIdx];
-                float penaltyMultiplier = 1.0f;
-
-                // 連続回数に応じてペナルティを指数関数的に増やす
-                // 1回目: 小ペナルティ, 2回目: 中ペナルティ, 3回目以降: 特大ペナルティ
-                int repeat = brain.actionRepeatCount;
-
-                // 強行動(BURST_DASH等)は飽きやすくする (理不尽感の軽減)
-                if (actionName.equals("BURST_DASH") || actionName.equals("OVERWHELM")) {
-                    // 期待値をガッツリ削る (例: 2回目でスコア半減、3回目でマイナス評価)
-                    penaltyMultiplier = (float) Math.pow(0.6, repeat);
-                    expectation -= (repeat * 1.5); // 固定値でも引いておく
-                } else {
-                    // 通常移動などは緩やかに
-                    penaltyMultiplier = (float) Math.pow(0.9, repeat);
-                }
-
-                // 正のスコアなら係数を掛けて減らす
-                if (expectation > 0) {
-                    expectation *= penaltyMultiplier;
-                }
+                float penaltyMultiplier = (float) Math.pow(actionName.equals("BURST_DASH") || actionName.equals("OVERWHELM") ? 0.6 : 0.9, brain.actionRepeatCount);
+                if (expectation > 0) expectation *= penaltyMultiplier;
+                if (actionName.equals("BURST_DASH")) expectation -= (brain.actionRepeatCount * 1.5);
             }
-            // =========================================================
 
             if (expectation > bestExpectation) {
                 bestExpectation = (float) expectation;
@@ -337,36 +311,33 @@ public class LiquidCombatEngine {
         }
 
         // 集合知バイアス (Epsilon)
-        float epsilon = 0.1f + ((float) brain.frustration * 0.4f) + (globalFear * 0.1f);
-        epsilon = Math.min(0.6f, epsilon);
-
+        float epsilon = Math.min(0.6f, 0.1f + (brain.frustration * 0.4f) + (globalFear * 0.1f));
         if (ThreadLocalRandom.current().nextFloat() < epsilon) {
-            if (globalWeakness.equals("CLOSE_QUARTERS") && ThreadLocalRandom.current().nextFloat() < 0.3f) {
-                bestAIdx = 6; // BURST_DASH (INDEXマッピング)
-            } else {
-                bestAIdx = ThreadLocalRandom.current().nextInt(ACTIONS.length);
-            }
+            bestAIdx = (globalWeakness.equals("CLOSE_QUARTERS") && ThreadLocalRandom.current().nextFloat() < 0.3f) ? 6 : ThreadLocalRandom.current().nextInt(ACTIONS.length);
             d.reasoning += " | Q:EXPLORING";
         }
 
+        // --- 4. 戦術的分岐 & DSRによる行動補正 ---
+        float reflexIntensity = (float) brain.reflex.get();
         String recommendedAction = ACTIONS[bestAIdx];
 
-        // --- 4. 戦術的分岐 (機能維持) ---
-        if (advantage < 0.3f || (globalFear > 0.8f && advantage < 0.5f)) {
+        if (brain.adrenaline > 0.85f && reflexIntensity > 0.7f) {
+            // 【サージバイパス発動】 Q学習の結果を「本能(DSR経路)」が上書き
+            d.decision.action_type = "OVERWHELM";
+            d.movement.strategy = "BURST_DASH";
+            d.reasoning += " | DSR_BYPASS:SURGE";
+        } else if (advantage < 0.3f || (globalFear > 0.8f && advantage < 0.5f)) {
             d.decision.action_type = recommendedAction.equals("RETREAT") ? "RETREAT" : "DESPERATE_DEFENSE";
             d.movement.strategy = d.decision.action_type.equals("RETREAT") ? "RETREAT" : "MAINTAIN_DISTANCE";
-        }
-        else if (patternMatchScore > 0.7f && brain.composure > 0.6 && !isRecovering && enemies.size() == 1) {
+        } else if (patternMatchScore > 0.7f && brain.composure > 0.6 && !isRecovering && enemies.size() == 1) {
             d.decision.action_type = "COUNTER";
             d.movement.strategy = "SIDESTEP_COUNTER";
             d.decision.use_skill = "Counter_Stance";
-        }
-        else if (advantage > 0.7f || globalWeakness.equals("CLOSE_QUARTERS")) {
+        } else if (advantage > 0.7f || globalWeakness.equals("CLOSE_QUARTERS")) {
             d.decision.action_type = "OVERWHELM";
             d.movement.strategy = (enemies.size() > 1 || globalFear > 0.5f) ? "SPRINT_ZIGZAG" : "BURST_DASH";
             d.decision.use_skill = "Execution_Strike";
-        }
-        else {
+        } else {
             d.decision.action_type = recommendedAction;
             switch (recommendedAction) {
                 case "EVADE" -> d.movement.strategy = "SIDESTEP";
@@ -376,14 +347,13 @@ public class LiquidCombatEngine {
             }
         }
 
-        // 最終更新の直前でカウンターを処理
+        // 最終更新処理
         if (bestAIdx == brain.lastActionIdx) {
-            brain.actionRepeatCount++; // 同じ行動ならカウントアップ
+            brain.actionRepeatCount++;
         } else {
-            brain.actionRepeatCount = 0; // 違う行動ならリセット
+            brain.actionRepeatCount = 0;
         }
 
-        // 最終更新
         brain.lastStateIdx = stateIdx;
         brain.lastActionIdx = bestAIdx;
         applyMobilityRewards(bukkitEntity, brain, d, (double) enemyDist);

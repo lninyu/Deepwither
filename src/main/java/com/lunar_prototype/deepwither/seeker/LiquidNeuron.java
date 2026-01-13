@@ -1,5 +1,8 @@
 package com.lunar_prototype.deepwither.seeker;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * リキッド・ニューロン
  * 入力に対して動的な時定数(tau)で反応するニューロンモデル。
@@ -9,13 +12,34 @@ public class LiquidNeuron {
     private float state;
     private float baseDecay;
 
+    private final Map<LiquidNeuron, Float> synapses = new HashMap<>();
+
     public LiquidNeuron(double initialDecay) {
         this.baseDecay = (float) initialDecay;
         this.state = 0.0f;
     }
 
+    /**
+     * [新理論] 構造的再編: 他のニューロンとの間に新しい回路を形成する
+     */
+    public void connect(LiquidNeuron target, float weight) {
+        this.synapses.put(target, weight);
+    }
+
+    /**
+     * [新理論] 回路の切断: 接続を物理的に排除する（プルーニング）
+     */
+    public void disconnect(LiquidNeuron target) {
+        this.synapses.remove(target);
+    }
+
     public void update(double input, double urgency) {
-        // dynamicAlpha = baseDecay + (urgency * (1.0 - baseDecay))
+        // 外部入力に加えて、接続されている他のニューロンからの伝達信号を合算
+        float synapticInput = (float) input;
+        for (Map.Entry<LiquidNeuron, Float> entry : synapses.entrySet()) {
+            synapticInput += (float) (entry.getKey().get() * entry.getValue());
+        }
+
         float alpha = baseDecay + ((float)urgency * (1.0f - baseDecay));
         this.state += alpha * ((float)input - this.state);
         if (this.state > 1.0f) this.state = 1.0f;

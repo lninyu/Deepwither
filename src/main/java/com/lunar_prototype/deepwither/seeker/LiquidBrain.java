@@ -155,6 +155,50 @@ public class LiquidBrain {
         selfPattern.lastAttackTick = currentTick;
     }
 
+    /**
+     * [新理論] 脳の構造的トポロジーを現在の状況に合わせて再編する
+     * 従来のAIにはない「物理的な脳の作り変え」を再現
+     */
+    public void reshapeTopology() {
+        // 1. 回路の初期化（基本接続以外をリセット）
+        clearTemporarySynapses();
+
+        if (adrenaline > 0.8f) {
+            // 【サージ状態: 戦闘バイパス形成】
+            // 恐怖(fear)から戦術(tactical)への接続を遮断し、
+            // 攻撃性(aggression)から反射(reflex)へ直接信号を流すバイパスを形成
+            // これにより「迷わず最短距離で殴る」脳構造に変形
+            aggression.connect(reflex, 1.5f);
+            dramaticStructureChangeEffect(); // 視覚演出フラグ等
+        }
+
+        if (frustration > 0.7f) {
+            // 【フラストレーション: 乱数回路の強化】
+            // 単調さを打破するため、戦術回路にノイズ（不安定なフィードバック）を混入
+            reflex.connect(tactical, -0.5f); // 既存の冷静な判断を抑制
+        }
+
+        if (composure > 0.9f) {
+            // 【極限の集中: 精密演算モード】
+            // 全てのニューロンが tactical に情報を集約する構造へ
+            aggression.connect(tactical, 0.5f);
+            fear.connect(tactical, 0.5f);
+        }
+    }
+
+    private void clearTemporarySynapses() {
+        aggression.disconnect(reflex);
+        aggression.disconnect(tactical);
+        fear.disconnect(tactical);
+        reflex.disconnect(tactical);
+    }
+
+    // [2026-01-12] サージ演出（FLASHカラー）との連動
+    private void dramaticStructureChangeEffect() {
+        // ここで Particle.FLASH + Color データの注入トリガーを引く
+        this.accumulatedReward += 0.01f; // 構造変化自体に微小な期待値を与える
+    }
+
     public void digestExperience() {
         if (accumulatedReward > 0) {
             aggression.update(1.0f, accumulatedReward * 0.5f);
@@ -168,5 +212,6 @@ public class LiquidBrain {
             adrenaline = Math.min(1.0f, adrenaline + (accumulatedPenalty * 0.2f));
         }
         accumulatedReward = 0; accumulatedPenalty = 0;
+        reshapeTopology();
     }
 }
