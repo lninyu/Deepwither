@@ -1,6 +1,7 @@
 package com.lunar_prototype.deepwither;
 
 import com.lunar_prototype.deepwither.data.DailyTaskData;
+import com.lunar_prototype.deepwither.data.PlayerQuestData;
 import com.lunar_prototype.deepwither.data.TraderOffer;
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
@@ -17,12 +18,15 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class TraderGUI implements Listener {
 
     public static final String BUY_GUI_TITLE = "§8[購入] §f%s"; // %sにトレーダー名が入る
     public static final String SELL_GUI_TITLE = "§8[売却] §f総合売却所"; // 全体共通の売却タイトル
+    public static final String QUEST_GUI_TITLE = "§8[クエスト] §f%s";
 
     private static final String SELL_ID_KEY = "sell_price";
     private static final String OFFER_ID_KEY = "offer_id";
@@ -119,6 +123,8 @@ public class TraderGUI implements Listener {
         // 6. デイリータスクボタンを追加 (売却ボタンの左隣)
         addDailyTaskButton(player, gui, size - 2, traderId, Deepwither.getInstance().getDailyTaskManager());
 
+        addQuestListButton(gui,size -3,traderId);
+
         player.openInventory(gui);
     }
 
@@ -214,6 +220,13 @@ public class TraderGUI implements Listener {
                 return;
             }
 
+            if (e.getCurrentItem().getItemMeta().getDisplayName().contains("トレーダークエスト")) {
+                String traderId = e.getCurrentItem().getItemMeta().getPersistentDataContainer().get(
+                        new NamespacedKey(Deepwither.getInstance(), TRADER_ID_KEY), PersistentDataType.STRING);
+                openQuestGUI(player, traderId);
+                return;
+            }
+
             if (e.getSlot() == e.getInventory().getSize() - 2 &&
                     e.getCurrentItem().getType() == org.bukkit.Material.WRITABLE_BOOK &&
                     e.getCurrentItem().getItemMeta().getDisplayName().contains("デイリータスク")) {
@@ -253,6 +266,35 @@ public class TraderGUI implements Listener {
             // ... (購入ロジックは次の項目で詳細を記述) ...
 
             handlePurchase(player, e.getCurrentItem(), Deepwither.getInstance().getTraderManager());
+        }
+
+        // 2. クエスト専用GUIの処理
+        if (e.getView().getTitle().startsWith("§8[クエスト]")) {
+            e.setCancelled(true);
+            ItemStack clicked = e.getCurrentItem();
+            if (clicked == null || !clicked.hasItemMeta()) return;
+
+            ItemMeta meta = clicked.getItemMeta();
+            String qId = meta.getPersistentDataContainer().get(new NamespacedKey(Deepwither.getInstance(), "quest_id"), PersistentDataType.STRING);
+            String tId = meta.getPersistentDataContainer().get(new NamespacedKey(Deepwither.getInstance(), TRADER_ID_KEY), PersistentDataType.STRING);
+
+            if (qId == null || tId == null) return;
+
+            TraderQuestManager tqm = Deepwither.getInstance().getTraderQuestManager();
+            TraderManager tm = Deepwither.getInstance().getTraderManager();
+            TraderManager.QuestData quest = tm.getQuestsForTrader(tId).get(qId);
+
+            if (clicked.getType() == Material.BOOK) {
+                // 受領
+                tqm.acceptQuest(player, tId, qId);
+                openQuestGUI(player, tId); // GUI更新
+            } else if (clicked.getType() == Material.WRITABLE_BOOK) {
+                // 報告/納品
+                if ("FETCH".equalsIgnoreCase(quest.getType())) {
+                    tqm.handleDelivery(player, tId, qId);
+                }
+                openQuestGUI(player, tId); // 進捗更新
+            }
         }
     }
 
@@ -379,5 +421,90 @@ public class TraderGUI implements Listener {
         player.getInventory().addItem(itemToGive);
 
         player.sendMessage(ChatColor.GREEN + itemToGive.getItemMeta().getDisplayName() + " を " + econ.format(cost) + " で購入しました。");
+    }
+
+    /**
+     * メインの購入GUIにクエストボタンを追加（openBuyGUIメソッド内を修正）
+     */
+// size-3 などの空きスロットに配置
+    private void addQuestListButton(Inventory gui, int slot, String traderId) {
+        ItemStack button = new ItemStack(Material.BOOK);
+        ItemMeta meta = button.getItemMeta();
+        meta.setDisplayName("§6§lトレーダークエスト");
+        List<String> lore = new ArrayList<>();
+        lore.add("§7このトレーダーから受けられる");
+        lore.add("§7永続的なタスクを確認します。");
+        meta.setLore(lore);
+
+        NamespacedKey key = new NamespacedKey(Deepwither.getInstance(), TRADER_ID_KEY);
+        meta.getPersistentDataContainer().set(key, PersistentDataType.STRING, traderId);
+
+        button.setItemMeta(meta);
+        gui.setItem(slot, button);
+    }
+
+    /**
+     * クエスト一覧GUIを開く
+     */
+    public void openQuestGUI(Player player, String traderId) {
+        TraderManager tm = Deepwither.getInstance().getTraderManager();
+        TraderQuestManager tqm = Deepwither.getInstance().getTraderQuestManager();
+        Map<String, TraderManager.QuestData> quests = tm.getQuestsForTrader(traderId);
+
+        int size = 27; // クエスト数に応じて調整
+        Inventory gui = Bukkit.createInventory(player, size, String.format(QUEST_GUI_TITLE, tm.getTraderName(traderId)));
+
+        for (TraderManager.QuestData quest : quests.values()) {
+            ItemStack item;
+            ItemMeta meta;
+            List<String> lore = new ArrayList<>();
+
+            boolean isCompleted = tqm.isQuestCompleted(player, traderId, quest.getId());
+            boolean canAccept = tqm.canAcceptQuest(player, traderId, quest);
+
+            String progressKey = traderId + ":" + quest.getId();
+            PlayerQuestData data = tqm.getPlayerData(player); // プレイヤーデータを取得するゲッターが必要
+            boolean isActive = data != null && data.getCurrentProgress().containsKey(progressKey);
+
+            if (isCompleted) {
+                item = new ItemStack(Material.ENCHANTED_BOOK);
+                meta = item.getItemMeta();
+                meta.setDisplayName("§a§l✔ §7" + quest.getDisplayName());
+                lore.add("§7このタスクは完了しています。");
+            } else if (!canAccept) {
+                item = new ItemStack(Material.BARRIER);
+                meta = item.getItemMeta();
+                meta.setDisplayName("§c§l[未開放] §7" + quest.getDisplayName());
+                lore.add("§7前提条件: §e" + (quest.getRequiredQuestId() != null ? quest.getRequiredQuestId() : "不明"));
+            } else {
+                item = new ItemStack(isActive ? Material.WRITABLE_BOOK : Material.BOOK);
+                meta = item.getItemMeta();
+                meta.setDisplayName((isActive ? "§e§l[進行中] " : "§6§l[受領可能] ") + "§f" + quest.getDisplayName());
+
+                lore.add("§7タイプ: §f" + quest.getType());
+                lore.add("§7目標: §f" + quest.getTarget() + " ×" + quest.getAmount());
+
+                if (isActive) {
+                    int current = data.getCurrentProgress().get(progressKey);
+                    lore.add("§a進捗: §f" + current + " / " + quest.getAmount());
+                    lore.add("");
+                    lore.add("§eクリックして納品/報告");
+                } else {
+                    lore.add("");
+                    lore.add("§aクリックして受領");
+                }
+            }
+
+            // PDCにクエストIDを保存
+            NamespacedKey qKey = new NamespacedKey(Deepwither.getInstance(), "quest_id");
+            meta.getPersistentDataContainer().set(qKey, PersistentDataType.STRING, quest.getId());
+            NamespacedKey tKey = new NamespacedKey(Deepwither.getInstance(), TRADER_ID_KEY);
+            meta.getPersistentDataContainer().set(tKey, PersistentDataType.STRING, traderId);
+
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+            gui.addItem(item);
+        }
+        player.openInventory(gui);
     }
 }

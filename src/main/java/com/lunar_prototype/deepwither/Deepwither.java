@@ -109,6 +109,12 @@ public final class Deepwither extends JavaPlugin {
     private CreditManager creditManager;
     public ArtifactGUI artifactGUI;
     public ItemFactory itemFactory;
+
+    public TraderQuestManager getTraderQuestManager() {
+        return traderQuestManager;
+    }
+
+    private TraderQuestManager traderQuestManager;
     public StatManager statManager;
     private DailyTaskManager dailyTaskManager;
     private MobSpawnManager mobSpawnManager;
@@ -585,6 +591,7 @@ public final class Deepwither extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new ItemGlowHandler(this), this);
         getServer().getPluginManager().registerEvents(new DungeonSignListener(),this);
         getServer().getPluginManager().registerEvents(new ClanChatManager(clanManager),this);
+        getServer().getPluginManager().registerEvents(traderQuestManager,this);
     }
 
     @Override
@@ -618,6 +625,7 @@ public final class Deepwither extends JavaPlugin {
         this.boosterManager = register(BoosterManager.class, new BoosterManager(databaseManager));
         this.globalMarketManager = register(GlobalMarketManager.class, new GlobalMarketManager(this, databaseManager));
         this.clanManager = register(ClanManager.class,new ClanManager(databaseManager));
+        this.traderQuestManager = register(TraderQuestManager.class,new TraderQuestManager(this,databaseManager));
         // 新しくSQLite対応させたデータストア (引数にdatabaseManagerを渡す)
         this.fileDailyTaskDataStore = register(FileDailyTaskDataStore.class,
                 new FileDailyTaskDataStore(this, databaseManager));

@@ -4,6 +4,7 @@ import com.lunar_prototype.deepwither.data.TraderOffer;
 import com.lunar_prototype.deepwither.data.TraderOffer.ItemType;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -22,6 +23,11 @@ public class TraderManager {
     private final File tradersFolder;
     private final File sellFile;
 
+    // クエスト情報を保持するマップ [TraderID -> [QuestID -> QuestData]]
+    private final Map<String, Map<String, QuestData>> traderQuests = new HashMap<>();
+    // ティアの解禁条件を保持するマップ [TraderID -> [CreditLevel -> RequiredQuestID]]
+    private final Map<String, Map<Integer, String>> tierRequirements = new HashMap<>();
+
     public TraderManager(JavaPlugin plugin, ItemFactory itemFactory) {
         this.plugin = plugin;
         this.itemFactory = itemFactory;
@@ -33,11 +39,62 @@ public class TraderManager {
         loadSellOffers();
     }
 
+    public static class QuestData {
+        private final String id;
+        private final String displayName;
+        private final List<String> description;
+        private final String type;   // "KILL", "FETCH"
+        private final String target; // Mob名 または Material名
+        private final int amount;
+        private final String requiredQuestId; // 前提条件
+        private final int rewardCredit;       // 完了時の信用度報酬
+
+        // 拡張条件（Conditions）
+        private double minDistance = -1;
+        private double maxDistance = -1;
+        private String requiredWeapon = null;
+        private String requiredArmor = null;
+
+        public QuestData(String id, String name, List<String> description, String type, String target, int amount, String requires, int rewardCredit) {
+            this.id = id;
+            this.displayName = name;
+            this.description = (description != null) ? description : new ArrayList<>();
+            this.type = type;
+            this.target = target;
+            this.amount = amount;
+            this.requiredQuestId = requires;
+            this.rewardCredit = rewardCredit;
+        }
+
+        // セッター (条件設定用)
+        public void setDistance(double min, double max) { this.minDistance = min; this.maxDistance = max; }
+        public void setRequiredWeapon(String weapon) { this.requiredWeapon = weapon; }
+        public void setRequiredArmor(String armor) { this.requiredArmor = armor; }
+
+        // ゲッター
+        public String getId() { return id; }
+        public String getDisplayName() { return displayName; }
+        public List<String> getDescription() { return description; }
+        public String getType() { return type; }
+        public String getTarget() { return target; }
+        public int getAmount() { return amount; }
+        public String getRequiredQuestId() { return requiredQuestId; }
+        public int getRewardCredit() { return rewardCredit; }
+        public double getMinDistance() { return minDistance; }
+        public double getMaxDistance() { return maxDistance; }
+        public String getRequiredWeapon() { return requiredWeapon; }
+        public String getRequiredArmor() { return requiredArmor; }
+    }
+
     // --- トレーダー購入オファーのロード ---
 
     private void loadAllTraders() {
         traderOffers.clear();
-        dailyTaskLimits.clear(); // ★ 制限マップもクリア
+        dailyTaskLimits.clear();
+        traderNames.clear();
+        traderQuests.clear(); // 新規追加
+        tierRequirements.clear(); // 新規追加
+
         File[] traderFiles = tradersFolder.listFiles((dir, name) -> name.endsWith(".yml"));
         if (traderFiles == null) return;
 
@@ -45,24 +102,64 @@ public class TraderManager {
             String traderId = file.getName().replace(".yml", "");
             YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
 
+            // 1. 基本情報の読み込み
             String displayName = config.getString("trader_name", traderId);
             traderNames.put(traderId, displayName);
 
-            // ★ 1. デイリータスク制限を読み込む
-            int limit = config.getInt("task_limit", 1); // デフォルトは 1 回
-            if (limit > 0) {
-                dailyTaskLimits.put(traderId, limit);
-            } else {
-                plugin.getLogger().warning("Trader " + traderId + ": task_limit に無効な値 (" + limit + ") が設定されています。デフォルト値 1 を使用します。");
-                dailyTaskLimits.put(traderId, 1);
+            // デイリータスク制限
+            int limit = config.getInt("task_limit", 1);
+            dailyTaskLimits.put(traderId, Math.max(1, limit));
+
+            // 2. トレーダークエスト(永続タスク)の読み込み
+            if (config.isConfigurationSection("quests")) {
+                Map<String, QuestData> quests = parseQuests(traderId, config.getConfigurationSection("quests"));
+                traderQuests.put(traderId, quests);
             }
 
-            // 2. 購入オファーを読み込む (既存ロジック)
+            // 3. 購入オファーとティア解禁条件の読み込み
+            // parseBuyOffersを拡張して、ティアごとのrequired_questも取得するように修正
             Map<Integer, List<TraderOffer>> creditTiers = parseBuyOffers(traderId, config);
             traderOffers.put(traderId, creditTiers);
 
-            plugin.getLogger().info("Trader loaded: " + traderId + " (Task Limit: " + dailyTaskLimits.get(traderId) + ")");
+            plugin.getLogger().info("Trader loaded: " + traderId +
+                    " (Quests: " + (traderQuests.containsKey(traderId) ? traderQuests.get(traderId).size() : 0) + ")");
         }
+    }
+
+    /**
+     * YAMLのquestsセクションをパースする
+     */
+    private Map<String, QuestData> parseQuests(String traderId, org.bukkit.configuration.ConfigurationSection section) {
+        Map<String, QuestData> quests = new LinkedHashMap<>(); // 順番を保持
+
+        for (String questId : section.getKeys(false)) {
+            String path = questId + ".";
+
+            String name = section.getString(path + "display_name", questId);
+            List<String> description = section.getStringList(path + "description");
+            String type = section.getString(path + "type", "KILL");
+            String target = section.getString(path + "target", "");
+            int amount = section.getInt(path + "amount", 1);
+            String requires = section.getString(path + "requires"); // 前提クエストID
+            int rewardCredit = section.getInt(path + "reward_credit", 0);
+
+            // クエスト本体の生成
+            QuestData qData = new QuestData(questId, name, description, type, target, amount, requires, rewardCredit);
+
+            // 拡張条件（conditionsセクション）の読み込み
+            if (section.isConfigurationSection(path + "conditions")) {
+                org.bukkit.configuration.ConfigurationSection cond = section.getConfigurationSection(path + "conditions");
+                qData.setDistance(
+                        cond.getDouble("min_distance", -1),
+                        cond.getDouble("max_distance", -1)
+                );
+                qData.setRequiredWeapon(cond.getString("weapon"));
+                qData.setRequiredArmor(cond.getString("armor"));
+            }
+
+            quests.put(questId, qData);
+        }
+        return quests;
     }
 
     private Map<Integer, List<TraderOffer>> parseBuyOffers(String traderId, YamlConfiguration config) {
@@ -70,17 +167,26 @@ public class TraderManager {
 
         if (!config.isConfigurationSection("credit_tiers")) return tiers;
 
+        // このトレーダーのティア条件を格納する一時マップ
+        Map<Integer, String> requirements = new HashMap<>();
+
         for (String creditStr : config.getConfigurationSection("credit_tiers").getKeys(false)) {
             try {
                 int creditLevel = Integer.parseInt(creditStr);
-                List<TraderOffer> offers = new ArrayList<>();
+                String path = "credit_tiers." + creditStr;
 
-                // credit_tiers.[creditStr].buy_offers のリストを取得
-                List<Map<?, ?>> offersList = config.getMapList("credit_tiers." + creditStr + ".buy_offers");
+                // ★ 追加: ティアの解禁に必要なクエストIDを読み込む
+                String reqQuest = config.getString(path + ".required_quest");
+                if (reqQuest != null) {
+                    requirements.put(creditLevel, reqQuest);
+                }
+
+                // --- 既存のアイテム読み込みロジック ---
+                List<TraderOffer> offers = new ArrayList<>();
+                List<Map<?, ?>> offersList = config.getMapList(path + ".buy_offers");
 
                 for (Map<?, ?> offerMap : offersList) {
                     TraderOffer offer = createTraderOffer(offerMap);
-                    // ここでロードされたアイテムをセット（GUI生成時の負荷軽減のため）
                     loadOfferItem(offer);
                     offers.add(offer);
                 }
@@ -90,6 +196,10 @@ public class TraderManager {
                 plugin.getLogger().warning("Trader " + traderId + ": 無効な信用度レベル: " + creditStr);
             }
         }
+
+        // 全てのティアを読み終わった後、条件マップを保存
+        tierRequirements.put(traderId, requirements);
+
         return tiers;
     }
 
@@ -257,6 +367,53 @@ public class TraderManager {
                 .filter(offer -> offer.getId().equals(itemId))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * プレイヤーがそのティアにアクセス可能か判定する
+     */
+    public boolean canAccessTier(Player player, String traderId, int requiredCredit, int playerCredit) {
+        // 1. まず信用度が足りているか
+        if (playerCredit < requiredCredit) return false;
+
+        // 2. ティア解禁に必要なクエストがあるかチェック
+        Map<Integer, String> requirements = tierRequirements.get(traderId);
+        if (requirements == null || !requirements.containsKey(requiredCredit)) {
+            return true; // 必要クエスト設定なし
+        }
+
+        String reqQuestId = requirements.get(requiredCredit);
+        // TraderQuestManager を通じて完了状況を確認
+        return Deepwither.getInstance().getTraderQuestManager().isQuestCompleted(player, traderId, reqQuestId);
+    }
+
+    /**
+     * 指定されたトレーダーIDに関連付けられたクエスト一覧を取得します。
+     * @param traderId トレーダーのID
+     * @return クエストIDをキーとしたQuestDataのマップ。存在しない場合は空のマップを返します。
+     */
+    public Map<String, QuestData> getQuestsForTrader(String traderId) {
+        return traderQuests.getOrDefault(traderId, Collections.emptyMap());
+    }
+
+    /**
+     * 特定のトレーダーの特定のクエストデータを取得します。
+     * @param traderId トレーダーのID
+     * @param questId クエストのID
+     * @return QuestData。存在しない場合はnullを返します。
+     */
+    public QuestData getQuestData(String traderId, String questId) {
+        Map<String, QuestData> quests = traderQuests.get(traderId);
+        if (quests == null) return null;
+        return quests.get(questId);
+    }
+
+    /**
+     * 現在ロードされている全トレーダーのクエスト情報を取得します（管理・監視用）。
+     * @return [TraderID -> [QuestID -> QuestData]] のマップ
+     */
+    public Map<String, Map<String, QuestData>> getAllQuests() {
+        return Collections.unmodifiableMap(traderQuests);
     }
 
     public int getSellPrice(String id) {
