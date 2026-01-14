@@ -35,7 +35,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           # Mavenのデフォルト出力先
-          path: 'target/site/apidocs'
+          path: 'target/reports/apidocs'
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v4
