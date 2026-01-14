@@ -21,6 +21,7 @@ jobs:
         with:
           java-version: '21' # 使用するJavaのバージョン
           distribution: 'temurin'
+          cache: 'maven'
 
       - name: Generate Javadoc
         run: mvn javadoc:javadoc -Dencoding=UTF-8 -Dcharset=UTF-8
