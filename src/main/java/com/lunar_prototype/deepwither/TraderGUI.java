@@ -38,50 +38,50 @@ public class TraderGUI implements Listener {
      */
     public void openBuyGUI(Player player, String traderId, int playerCredit, TraderManager manager) {
 
-        // 1. プレイヤーの信用度に基づき、購入可能なオファーを取得
-        List<TraderOffer> availableOffers = manager.getAllOffers(traderId);
+        // 1. 全てのオファーを取得
+        List<TraderOffer> allOffers = manager.getAllOffers(traderId);
 
-        // 2. GUIのサイズを決定 (9の倍数、最大54スロット)
-        int size = ((availableOffers.size() / 9) + 1) * 9;
+        // 2. GUIのサイズを決定 (下段1列(9スロット)をボタン用に確保するため、最低18、最大54)
+        // 商品数に応じて行数を計算し、最後に1列追加する
+        int offerRows = (int) Math.ceil(allOffers.size() / 9.0);
+        int size = (offerRows + 1) * 9;
         size = Math.min(size, 54);
 
-        // 3. インベントリを作成
-        // ★ 修正箇所: IDではなく、設定から読み込んだ表示名を取得する
+        // インベントリの作成
         String traderDisplayName = manager.getTraderName(traderId);
-
-        // 3. インベントリを作成 (BUY_GUI_TITLE の %s に表示名を流し込む)
         Inventory gui = Bukkit.createInventory(player, size, String.format(BUY_GUI_TITLE, traderDisplayName));
 
-        // ★ オファーを配置できる最大スロット数を計算
-        // 最後の2スロット(size-1とsize-2)はボタン用に予約
-        final int maxOfferSlots = size - 2;
+        // ★ 商品を配置できる最大スロット（最終行を除いた範囲）
+        final int maxOfferSlots = size - 9;
 
         // 4. オファーをGUIに配置
-        for (int i = 0; i < availableOffers.size(); i++) {
+        for (int i = 0; i < allOffers.size(); i++) {
             if (i >= maxOfferSlots) break;
 
-            TraderOffer offer = availableOffers.get(i);
-            int finalI = i;
+            TraderOffer offer = allOffers.get(i);
+            int currentSlot = i;
 
             offer.getLoadedItem().ifPresent(originalItem -> {
                 ItemStack displayItem = originalItem.clone();
                 ItemMeta meta = displayItem.getItemMeta();
                 List<String> lore = meta.getLore() != null ? meta.getLore() : new java.util.ArrayList<>();
 
+                // ★ クエストおよび信用度による解禁判定
+                // manager.canAccessTier(player, traderId, requiredCredit, playerCredit) を使用
+                boolean isUnlocked = manager.canAccessTier(player, traderId, offer.getRequiredCredit(), playerCredit);
+
                 lore.add("");
                 lore.add("§a--- 取引情報 ---");
 
-                // 1. お金コストの表示 (0円でない場合のみ表示などの調整も可能)
                 if (offer.getCost() > 0) {
                     lore.add("§7価格: §6" + Deepwither.getEconomy().format(offer.getCost()));
                 }
 
-                // ★ 2. 必要アイテムの表示を追加
+                // 必要アイテムの表示
                 List<ItemStack> reqItems = offer.getRequiredItems();
                 if (reqItems != null && !reqItems.isEmpty()) {
                     lore.add("§7必要アイテム:");
                     for (ItemStack req : reqItems) {
-                        // アイテム名を取得（表示名があればそれを、なければMaterial名を整形）
                         String itemName = req.hasItemMeta() && req.getItemMeta().hasDisplayName()
                                 ? req.getItemMeta().getDisplayName()
                                 : req.getType().name().toLowerCase().replace("_", " ");
@@ -91,39 +91,44 @@ public class TraderGUI implements Listener {
 
                 lore.add("§7必要信用度: §b" + offer.getRequiredCredit());
 
-                // PDCの設定 (既存 + 追加)
-                NamespacedKey pdc_key = new NamespacedKey(Deepwither.getInstance(), SELL_ID_KEY);
-                meta.getPersistentDataContainer().set(pdc_key, PersistentDataType.INTEGER, offer.getCost());
+                // PDCの基本設定
+                meta.getPersistentDataContainer().set(new NamespacedKey(Deepwither.getInstance(), SELL_ID_KEY), PersistentDataType.INTEGER, offer.getCost());
+                meta.getPersistentDataContainer().set(new NamespacedKey(Deepwither.getInstance(), OFFER_ID_KEY), PersistentDataType.STRING, offer.getId());
+                meta.getPersistentDataContainer().set(new NamespacedKey(Deepwither.getInstance(), TRADER_ID_KEY), PersistentDataType.STRING, traderId);
 
-                NamespacedKey pdc_key2 = new NamespacedKey(Deepwither.getInstance(), OFFER_ID_KEY); // 文字列定数化を推奨
-                meta.getPersistentDataContainer().set(pdc_key2, PersistentDataType.STRING, offer.getId());
-
-                NamespacedKey pdc_key3 = new NamespacedKey(Deepwither.getInstance(), TRADER_ID_KEY);
-                meta.getPersistentDataContainer().set(pdc_key3, PersistentDataType.STRING, traderId);
-
-                // ★ 購入可否チェックに「アイテム所持」を含めるか検討
-                // ここではシンプルに信用度のみで判定していますが、必要であれば
-                // inventory.containsAtLeast() を使って色を変えることも可能です。
-                if (playerCredit >= offer.getRequiredCredit()) {
+                // ★ 解禁状態に応じたLoreとアイテムの変更
+                if (isUnlocked) {
                     lore.add(ChatColor.GREEN + "クリックして購入");
                 } else {
-                    lore.add(ChatColor.RED + "信用度が不足しています");
-                    meta.getPersistentDataContainer().set(pdc_key, PersistentDataType.INTEGER, 0);
+                    // ロックされている場合
+                    displayItem.setType(Material.GRAY_STAINED_GLASS_PANE); // 見た目をロック状態に変更
+                    lore.add("");
+                    lore.add(ChatColor.RED + "§l【 ⚠ ロック中 】");
+                    lore.add(ChatColor.RED + "信用度が不足しているか、");
+                    lore.add(ChatColor.RED + "特定のクエストを完了する必要があります。");
+
+                    // 購入できないようにコストPDCを0にする等の対策
+                    meta.getPersistentDataContainer().set(new NamespacedKey(Deepwither.getInstance(), SELL_ID_KEY), PersistentDataType.INTEGER, 0);
                 }
 
                 meta.setLore(lore);
                 displayItem.setItemMeta(meta);
-                gui.setItem(finalI, displayItem);
+                gui.setItem(currentSlot, displayItem);
             });
         }
 
-        // 5. 売却ボタンを追加 (最後のスロットに固定)
+        // --- 5. 下段ボタンの配置 (最終行に並べる) ---
+        // 最終行の右端から順に配置
+        int lastRowStart = size - 9;
+
+        // 売却ボタン (右端)
         addSellButton(gui, size - 1);
 
-        // 6. デイリータスクボタンを追加 (売却ボタンの左隣)
+        // デイリータスクボタン (右から2番目)
         addDailyTaskButton(player, gui, size - 2, traderId, Deepwither.getInstance().getDailyTaskManager());
 
-        addQuestListButton(gui,size -3,traderId);
+        // クエストリストボタン (右から3番目)
+        addQuestListButton(gui, size - 3, traderId);
 
         player.openInventory(gui);
     }
