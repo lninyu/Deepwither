@@ -1,0 +1,36 @@
+name: Deploy Javadoc
+
+on:
+  push:
+    branches:
+      - main  # 監視するブランチ名
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21' # 使用するJavaのバージョン
+          distribution: 'temurin'
+
+      - name: Generate Javadoc
+        run: mvn javadoc:javadoc -encoding UTF-8 -charset UTF-8
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # Mavenのデフォルト出力先
+          path: 'target/site/apidocs'
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
