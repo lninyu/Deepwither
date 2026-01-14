@@ -370,7 +370,6 @@ public class LiquidCombatEngine {
     }
 
     private void applyMobilityRewards(Mob bukkitEntity, LiquidBrain brain, BanditDecision d, double currentDist) {
-        // インデックスが初期値(-1等)の場合はスキップ
         if (brain.lastStateIdx < 0 || brain.lastActionIdx < 0) return;
 
         Player target = (Player) bukkitEntity.getTarget();
@@ -379,45 +378,59 @@ public class LiquidCombatEngine {
         float totalProcessReward = 0.0f;
         StringBuilder rewardDebug = new StringBuilder();
 
-        // 1. 背後・側面奪取 (Flanking) - ドット積演算のみで判定
+        // =========================================================
+        // [新概念] 相関スケーラー: 信頼度・冷静さ・疲労を統合
+        // =========================================================
+        // 予測が当たるほど、冷静なほど報酬は増幅し、疲労している行動ほど減衰する
+        float currentFatigue = brain.fatigueMap[brain.lastActionIdx];
+        float correlationFactor = (brain.velocityTrust * 0.5f + brain.composure * 0.5f) * (1.0f - currentFatigue);
+
+        // 1. 背後・側面奪取 (Flanking) - 信頼度が高いほど「読み勝ち」として高評価
         Vector toSelf = bukkitEntity.getLocation().toVector().subtract(target.getLocation().toVector()).normalize();
         Vector targetFacing = target.getLocation().getDirection();
         float dot = (float) toSelf.dot(targetFacing);
 
-        if (dot < -0.3f) { // 背後側
-            totalProcessReward += 0.25f;
-            rewardDebug.append("FLANK(+0.25) ");
-        } else if (dot < 0.2f) { // 側面
-            totalProcessReward += 0.1f;
-            rewardDebug.append("SIDE(+0.1) ");
+        if (dot < -0.3f) {
+            // 信頼度と冷静さが高い時の背面取りは最大 +0.4f までスケーリング
+            float rwd = 0.1f + (0.3f * correlationFactor);
+            totalProcessReward += rwd;
+            rewardDebug.append(String.format("FLANK(+%.2f) ", rwd));
+        } else if (dot < 0.2f) {
+            float rwd = 0.05f + (0.1f * correlationFactor);
+            totalProcessReward += rwd;
+            rewardDebug.append(String.format("SIDE(+%.2f) ", rwd));
         }
 
-        // 2. リーチ・スペーシング (Spacing)
+        // 2. リーチ・スペーシング (Spacing) - 冷静な距離維持を評価
         String weakness = CollectiveKnowledge.getGlobalWeakness(target.getUniqueId());
         if (weakness.equals("CLOSE_QUARTERS")) {
             if (currentDist < 2.5) {
-                totalProcessReward += 0.2f;
-                rewardDebug.append("STICKY(+0.2) ");
+                // インファイト維持は冷静さ(Composure)をより重視
+                float rwd = 0.2f * brain.composure;
+                totalProcessReward += rwd;
+                rewardDebug.append(String.format("STICKY(+%.2f) ", rwd));
             }
         } else {
             if (currentDist > 3.0 && currentDist < 5.0) {
-                totalProcessReward += 0.05f;
-                rewardDebug.append("DIST(+0.05) ");
+                // 適切な距離維持。予測が安定(Trust)しているなら報酬アップ
+                float rwd = 0.05f + (0.1f * brain.velocityTrust);
+                totalProcessReward += rwd;
+                rewardDebug.append(String.format("DIST(+%.2f) ", rwd));
             }
         }
 
         // 3. 視線誘導 (Baiting Success)
-        // "BAITING" は ACTIONS 配列のインデックス 2 番と想定
         if (brain.lastActionIdx == 2 && brain.composure > 0.8f) {
-            totalProcessReward += 0.15f;
-            rewardDebug.append("BAIT_WIN(+0.15) ");
+            // BAITINGは「相手をハメた」判定のため、現在の信頼度が高い(＝相手が予測通り動いた)なら高評価
+            float rwd = 0.1f + (0.2f * brain.velocityTrust);
+            totalProcessReward += rwd;
+            rewardDebug.append(String.format("BAIT_WIN(+%.2f) ", rwd));
         }
 
-        // 4. 量子化Q-Tableへの反映 (Stringキー不要)
+        // 4. 量子化Q-Tableへの反映
         if (totalProcessReward > 0) {
-            // update(stateIdx, actionIdx, reward, nextStateIdx)
-            // ここでは便宜上 nextState を現在と同じに設定
-            brain.qTable.update(brain.lastStateIdx, brain.lastActionIdx, totalProcessReward, brain.lastStateIdx,brain.fatigueMap[brain.lastActionIdx]);
+            // 相関学習により、同じ「背面取り」でも状況が悪い（疲労中、予測ミス中）ならQ値の伸びを自動抑制
+            brain.qTable.update(brain.lastStateIdx, brain.lastActionIdx, totalProcessReward, brain.lastStateIdx, currentFatigue);
             d.reasoning += " | RWD: " + rewardDebug.toString();
         }
     }
@@ -501,10 +514,26 @@ public class LiquidCombatEngine {
             case 1 -> { // EVADE
                 if (enemyLikelyToAttack) score += 0.6f;
             }
+            case 2 -> { // BAITING (おとり)
+                // 予測が当たらない(敵がトリッキー)なら、あえて誘って動きを固定させる
+                if (brain.velocityTrust < 0.4f) score += 0.5f;
+            }
+            case 4 -> { // OBSERVE (観察)
+                // 予測精度が落ちてきたら、一旦リセットして観察に回る
+                if (brain.velocityTrust < 0.3f) score += 0.6f;
+            }
+            case 5 -> { // RETREAT (撤退)
+                // 敵の動きが読みやすく、かつ距離が近いなら、安全な未来位置へ早めに下がる
+                if (brain.velocityTrust > 0.7f && predDist < 5.0) score += 0.4f;
+            }
             case 6 -> { // BURST_DASH
                 // 信頼度が高いなら偏差射撃的に突っ込む、低いなら近距離確実性を取る
                 if (predDist > 5.0 && brain.velocityTrust > 0.5f) score += 0.4f;
                 if (globalWeakness.equals("CLOSE_QUARTERS")) score += 0.3f;
+            }
+            case 7 -> { // ORBITAL_SLIDE (回り込み)
+                // 予測が信頼できるなら、敵の移動先を先回りするようにスライドする
+                if (brain.velocityTrust > 0.6f) score += 0.5f;
             }
             case 3 -> { // COUNTER
                 if (enemyLikelyToAttack && selfRhythmScore > 0.5f) score += 0.8f;
