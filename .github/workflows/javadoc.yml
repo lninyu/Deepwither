@@ -2,7 +2,7 @@ name: Deploy Javadoc
 
 on:
   push:
-    branches: [ "main" ]  # mainにpushされたら毎回リリース
+    branches: [ "master" ]  # mainにpushされたら毎回リリース
 
 permissions:
   contents: read
