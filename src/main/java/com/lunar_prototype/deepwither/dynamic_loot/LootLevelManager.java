@@ -1,15 +1,13 @@
 package com.lunar_prototype.deepwither.dynamic_loot;
 
-import com.lunar_prototype.deepwither.Deepwither;
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 @DependsOn({})

@@ -1,14 +1,12 @@
 package com.lunar_prototype.deepwither.companion;
 
 import com.lunar_prototype.deepwither.Deepwither;
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 import io.lumine.mythic.bukkit.MythicBukkit;
-import kr.toxicity.model.api.BetterModel;
 import kr.toxicity.model.api.tracker.EntityTracker;
 import kr.toxicity.model.api.tracker.ModelScaler;
 import kr.toxicity.model.api.tracker.Tracker;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;

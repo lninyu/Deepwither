@@ -1,7 +1,7 @@
 package com.lunar_prototype.deepwither.raidboss;
 
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldguard.WorldGuard;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;

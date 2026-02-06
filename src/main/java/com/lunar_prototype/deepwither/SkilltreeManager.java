@@ -6,8 +6,8 @@ import java.sql.*;
 import java.util.*;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
 

@@ -1,16 +1,13 @@
 package com.lunar_prototype.deepwither.dungeon.instance;
 
 import com.lunar_prototype.deepwither.Deepwither;
-import com.lunar_prototype.deepwither.dungeon.instance.DungeonInstance;
-import com.lunar_prototype.deepwither.dungeon.instance.DungeonInstanceManager;
 import com.lunar_prototype.deepwither.dungeon.roguelike.RoguelikeBuffManager;
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
-import org.bukkit.util.Vector;
 
 import java.util.*;
 

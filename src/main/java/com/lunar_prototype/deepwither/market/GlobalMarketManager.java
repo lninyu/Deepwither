@@ -2,7 +2,7 @@ package com.lunar_prototype.deepwither.market;
 
 import com.lunar_prototype.deepwither.DatabaseManager;
 import com.lunar_prototype.deepwither.Deepwither;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;

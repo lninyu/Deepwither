@@ -1,4 +1,4 @@
-package com.lunar_prototype.deepwither.util;
+package com.lunar_prototype.deepwither.api.interfaces;
 
 public interface IManager {
     /**

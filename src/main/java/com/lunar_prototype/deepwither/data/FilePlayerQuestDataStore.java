@@ -2,8 +2,8 @@ package com.lunar_prototype.deepwither.data;
 
 import com.lunar_prototype.deepwither.DatabaseManager;
 import com.lunar_prototype.deepwither.aethelgard.PlayerQuestData;
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;

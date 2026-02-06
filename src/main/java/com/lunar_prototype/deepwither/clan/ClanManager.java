@@ -1,8 +1,8 @@
 package com.lunar_prototype.deepwither.clan;
 
 import com.lunar_prototype.deepwither.DatabaseManager;
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 import org.bukkit.entity.Player;
 
 import java.sql.*;

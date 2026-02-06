@@ -1,13 +1,10 @@
 package com.lunar_prototype.deepwither;
 
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
-import org.bukkit.Bukkit;
-import org.bukkit.Particle;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 
-import java.io.File;
 import java.sql.*;
 import java.util.HashMap;
 import java.util.Map;

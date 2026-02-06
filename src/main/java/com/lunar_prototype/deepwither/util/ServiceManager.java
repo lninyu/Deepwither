@@ -1,7 +1,8 @@
 package com.lunar_prototype.deepwither.util;
 
 import com.lunar_prototype.deepwither.Deepwither;
-import org.bukkit.Bukkit;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 
 import java.util.*;
 import java.util.logging.Level;

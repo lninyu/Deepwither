@@ -1,9 +1,8 @@
 package com.lunar_prototype.deepwither;
 
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 import org.bukkit.Bukkit;
-import com.lunar_prototype.deepwither.StatType; // StatTypeへのパスが正しいことを確認
 
 import java.util.HashMap;
 import java.util.Map;

@@ -1,8 +1,8 @@
 package com.lunar_prototype.deepwither.dynamic_loot;
 
 import com.lunar_prototype.deepwither.ItemFactory;
-import com.lunar_prototype.deepwither.util.DependsOn;
-import com.lunar_prototype.deepwither.util.IManager;
+import com.lunar_prototype.deepwither.api.annotations.DependsOn;
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 
 import java.util.HashMap;
 import java.util.List;

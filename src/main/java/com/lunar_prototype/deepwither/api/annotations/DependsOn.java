@@ -1,4 +1,6 @@
-package com.lunar_prototype.deepwither.util;
+package com.lunar_prototype.deepwither.api.annotations;
+
+import com.lunar_prototype.deepwither.api.interfaces.IManager;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
