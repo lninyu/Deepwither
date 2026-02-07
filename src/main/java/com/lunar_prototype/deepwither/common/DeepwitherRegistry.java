@@ -1,4 +1,4 @@
-package com.lunar_prototype.deepwither.labs;
+package com.lunar_prototype.deepwither.common;
 
 import com.lunar_prototype.deepwither.api.interfaces.DeepwitherGui;
 import com.lunar_prototype.deepwither.api.interfaces.DeepwitherItem;
