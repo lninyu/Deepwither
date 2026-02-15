@@ -5,6 +5,9 @@ author: ["Lunar_prototype","RS Team"]
 api-version: '1.21'
 depend : ["Votifier","BetterModel","DiscordSRV"]
 
+libraries:
+  - "com.github.ben-manes.caffeine:caffeine:3.2.3"
+
 commands:
   giveitem:
     description: this is a sample command.
